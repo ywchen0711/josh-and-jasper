@@ -43,7 +43,14 @@ then open http://localhost:8000
 - Hit **? blocks** from below for coins; some hold an **acorn** that makes you big
 - Big brothers can **break bricks**, and survive one extra hit
 - 100 coins = extra life · grab the flag pole as high as you can · reach the checkpoint so a restart begins halfway
-- Two worlds for now: **1-1** (sunny meadow) and **1-2** (dusk platforms)
+- **World 1**: 1-1 sunny meadow, 1-2 dusk platforms
+- **World 2 — Sage Canyon** (inspired by Sage Canyon School in Carmel Valley, San Diego):
+  - **2-1 Canyon Trail**: walk to school through the coastal sage scrub canyon — oaks, sage bushes,
+    prickly pear cactus (don't touch!), fast lizards and seagulls; ends at the school's back gate
+  - **2-2 Sage Canyon School**: a California elementary campus in the school's blue & grey —
+    blacktop with hopscotch and tetherball, lunch tables under the shade (watch the lunch-stealing seagulls),
+    library book blocks, playground, STEAM garden, US & California flags; bouncing playground balls;
+    grab an **apple** to grow big; ring the bell at the front of the school
 
 ## Files
 

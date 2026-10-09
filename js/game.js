@@ -8,6 +8,20 @@
   var canvas = document.getElementById('screen'), g = canvas.getContext('2d');
   g.imageSmoothingEnabled = false;
   var art = Art.build();
+  if (Art.buildSchool) Art.buildSchool(art);
+  // enemy kinds: speed, can be stomped, flies, bounces
+  var ENEMY = {
+    beetle:   { speed: 0.5, stomp: true },
+    hedgehog: { speed: 0.5, stomp: false },
+    lizard:   { speed: 1.0, stomp: true },
+    ball:     { speed: 0.8, stomp: true, bounce: true },
+    gull:     { speed: 0.7, stomp: true, fly: true },
+    cactus:   { speed: 0, stomp: false }
+  };
+  // tiles / ? blocks / ground top / power-up for the current level's theme
+  function tileset() {
+    return (art.tilesets && art.tilesets[level.theme]) || { tiles: art.tiles, question: art.question, top: art.grassTop, item: 'acorn' };
+  }
   var FONT = '8px "Press Start 2P", monospace';
 
   // ---- the two brothers: Josh runs faster, Jasper jumps higher ----
@@ -95,7 +109,9 @@
     tiles = level.tiles.map(function (r) { return r.split(''); });
     bumps = {};
     game.enemies = level.ents.map(function (e) {
-      return { type: e.type, x: e.x * TILE, y: e.y * TILE, w: 14, h: 14, vx: -0.5, vy: 0, active: false, dead: false, deadT: 0, flipped: false };
+      var def = ENEMY[e.type] || ENEMY.beetle;
+      return { type: e.type, def: def, x: e.x * TILE, y: e.y * TILE, baseY: e.y * TILE, w: 14, h: 14, vx: -def.speed, vy: 0, t: 0,
+               active: false, dead: false, deadT: 0, flipped: false };
     });
     game.items = []; game.parts = []; game.texts = [];
     var startX = game.checkpointHit ? level.checkpoint : level.start[0].x;
@@ -308,15 +324,24 @@
       if (e.deadT > (e.flipped ? 90 : 30)) e.gone = true;
       return;
     }
-    e.vy = Math.min(MAX_FALL, e.vy + GRAV);
-    e.hitWall = 0;
-    moveBox(e);
-    if (e.hitWall) e.vx = e.hitWall > 0 ? -0.5 : 0.5;
-    if (e.vx === 0) e.vx = -0.5;
-    if (e.y > VH + 32) e.gone = true;
+    var def = e.def;
+    e.t++;
+    if (def.fly) {                                    // seagulls glide in a wave, ignoring walls
+      e.x += e.vx;
+      e.y = e.baseY + Math.sin(e.t * 0.06) * 12;
+      if (e.x < game.camX - 64) e.gone = true;
+    } else {
+      e.vy = Math.min(MAX_FALL, e.vy + GRAV);
+      e.hitWall = 0;
+      moveBox(e);
+      if (e.hitWall) e.vx = e.hitWall > 0 ? -def.speed : def.speed;
+      if (e.vx === 0 && def.speed) e.vx = -def.speed;
+      if (def.bounce && e.onGround) e.vy = -4.2;     // playground ball keeps bouncing
+      if (e.y > VH + 32) e.gone = true;
+    }
     // enemies turn around when they bump into each other
     game.enemies.forEach(function (o) {
-      if (o === e || o.dead || !o.active) return;
+      if (o === e || o.dead || !o.active || def.fly || o.def.fly || !def.speed) return;
       if (overlap(e, o)) {
         if ((e.x < o.x && e.vx > 0) || (e.x > o.x && e.vx < 0)) e.vx = -e.vx;
       }
@@ -325,8 +350,9 @@
     game.players.forEach(function (p) {
       if (p.dead || !overlap(p, e)) return;
       var stomp = p.vy > 0 && p.prevBottom <= e.y + 6;
-      if (stomp && e.type === 'beetle') {
-        e.dead = true; e.deadT = 0;
+      if (stomp && def.stomp) {
+        if (def.fly || def.bounce) { e.dead = true; e.flipped = true; e.vy = def.bounce ? -2 : 0; e.vx = 1.5; e.deadT = 0; }   // kicked away
+        else { e.dead = true; e.deadT = 0; }
         p.combo = (p.onGround ? 0 : p.combo || 0) + 1;
         addScore([100, 200, 400, 800, 1000][Math.min(4, p.combo - 1)], e.x, e.y - 8);
         p.vy = p.jumpHeld ? -6 : -3.8;
@@ -468,7 +494,7 @@
 
   function drawTiles() {
     var x0 = Math.floor(game.camX / TILE), x1 = Math.min(level.w - 1, x0 + VW / TILE + 1);
-    var qFrame = [0, 0, 1, 2, 1][Math.floor(game.frame / 10) % 5];
+    var qFrame = [0, 0, 1, 2, 1][Math.floor(game.frame / 10) % 5], set = tileset();
     for (var ty = 0; ty < level.h; ty++) {
       for (var tx = x0; tx <= x1; tx++) {
         var c = tiles[ty][tx];
@@ -477,10 +503,10 @@
         var b = bumps[tx + ',' + ty];
         if (b) y -= Math.round(Math.sin((8 - b) / 8 * Math.PI) * 5);
         if (c === 'c') { Art.drawCoin(g, x, y, game.frame + tx * 3); continue; }
-        if (c === '?' || c === 'M') { g.drawImage(art.question[qFrame], x, y); continue; }
-        var img = art.tiles[c];
+        if (c === '?' || c === 'M') { g.drawImage(set.question[qFrame], x, y); continue; }
+        var img = set.tiles[c];
         if (img) g.drawImage(img, x, y);
-        if (c === '#' && tileAt(tx, ty - 1) !== '#') g.drawImage(art.grassTop, x, y);
+        if (c === '#' && tileAt(tx, ty - 1) !== '#') g.drawImage(set.top, x, y);
       }
     }
   }
@@ -503,22 +529,29 @@
     }
   }
 
+  function flipped(img) { return img._flipped || (img._flipped = Art.flip(img)); }
   function drawEnemy(e) {
     if (!e.active) return;
     var x = Math.round(e.x - 1 - game.camX), y = Math.round(e.y - 2);
     var f = Math.floor(game.frame / 12) % 2;
-    if (e.type === 'beetle') {
-      if (e.dead && !e.flipped) {                     // squashed
-        g.drawImage(art.beetle[0], 0, 4, 16, 10, x, y + 11, 16, 5);
-        return;
-      }
-      if (e.flipped) { g.save(); g.translate(x, y + 16); g.scale(1, -1); g.drawImage(art.beetle[0], 0, 0); g.restore(); return; }
-      g.drawImage(art.beetle[f], x, y);
-    } else {
-      var img = art.hedgehog[f][e.vx > 0 ? 1 : 0];
-      if (e.flipped) { g.save(); g.translate(x, y + 16); g.scale(1, -1); g.drawImage(img, 0, 0); g.restore(); return; }
-      g.drawImage(img, x, y);
+    var img;
+    if (e.type === 'beetle') img = art.beetle[f];
+    else if (e.type === 'hedgehog') img = art.hedgehog[f][e.vx > 0 ? 1 : 0];
+    else if (e.type === 'lizard') img = e.vx > 0 ? flipped(art.lizard[f]) : art.lizard[f];
+    else if (e.type === 'gull') img = e.vx > 0 ? flipped(art.gull[f]) : art.gull[f];
+    else if (e.type === 'ball') img = art.ball;
+    else img = art.cactus;
+    if (e.dead && !e.flipped) {                       // squashed
+      g.drawImage(img, 0, 4, 16, 10, x, y + 11, 16, 5);
+      return;
     }
+    if (e.flipped) { g.save(); g.translate(x, y + 16); g.scale(1, -1); g.drawImage(img, 0, 0); g.restore(); return; }
+    if (e.type === 'ball') {                          // squash a little on landing
+      var sq = e.onGround ? 3 : 0;
+      g.drawImage(img, x - sq / 2, y + sq, 16 + sq, 16 - sq);
+      return;
+    }
+    g.drawImage(img, x, y);
   }
 
   function drawHud() {
@@ -533,9 +566,14 @@
 
   function drawWorld() {
     Art.drawBackground(g, game.camX, VW, VH, level.theme);
-    // castle and flag (behind the brothers)
+    // decorations, the goal building and the flag (behind the brothers)
     var ground = (level.h - 2) * TILE;
-    Art.drawCastle(g, level.castleX * TILE - game.camX, ground);
+    (level.decos || []).forEach(function (d) {
+      var dx = d.x * TILE - game.camX;
+      if (dx > -120 && dx < VW + 40) Art.drawDeco(g, d, Math.round(dx), ground, game.frame);
+    });
+    if (!level.goal || level.goal === 'castle') Art.drawCastle(g, level.castleX * TILE - game.camX, ground);
+    else Art.drawGoalBuilding(g, level.goal, level.castleX * TILE - game.camX, ground);
     var fy = game.state === 'clear' ? game.flagY : 2 * TILE + 8;
     Art.drawFlag(g, level.flagX * TILE - game.camX, 1 * TILE, ground - TILE, fy);
     drawTiles();
@@ -543,8 +581,8 @@
       var x = Math.round(it.x - 1 - game.camX), y = Math.round(it.y - 2);
       if (it.rise > 0) {                              // only the part above the block shows while sprouting
         var vis = Math.round(TILE - it.rise);
-        g.drawImage(art.acorn, 0, 0, 16, vis, x, y, 16, vis);
-      } else g.drawImage(art.acorn, x, y);
+        g.drawImage(art[tileset().item] || art.acorn, 0, 0, 16, vis, x, y, 16, vis);
+      } else g.drawImage(art[tileset().item] || art.acorn, x, y);
     });
     game.enemies.forEach(drawEnemy);
     game.players.forEach(drawPlayer);
@@ -584,7 +622,8 @@
 
   function drawIntro() {
     g.fillStyle = '#000'; g.fillRect(0, 0, VW, VH);
-    text('WORLD ' + level.name, 160, 64, '#fff', 'center');
+    text('WORLD ' + level.name, 160, 56, '#fff', 'center');
+    if (level.title) text(level.title, 160, 70, '#f8d030', 'center');
     game.players.forEach(function (p, i) {
       var img = art[p.id].stand[p.big ? 'big' : 'small'][0];
       g.drawImage(img, 140 + i * 24 - (game.players.length - 1) * 12, 100 - img.height + 16);
@@ -606,8 +645,8 @@
     }
     if (game.state === 'win') {
       g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, 0, VW, VH);
-      text('THANK YOU, BROTHERS!', 160, 64, '#f8d030', 'center');
-      text('MORE WORLDS COMING SOON', 160, 84, '#fff', 'center');
+      text('RING! SCHOOL TIME!', 160, 64, '#f8d030', 'center');
+      text('JOSH & JASPER MADE IT', 160, 84, '#fff', 'center');
       text('SCORE ' + game.score, 160, 104, '#fff', 'center');
       if (game.overT > 120) text('PRESS ENTER', 160, 128, '#c0e0ff', 'center');
     }
@@ -648,6 +687,6 @@
 
   // for automated tests
   window.JJ = { game: game, newGame: newGame, step: function (n) { for (var i = 0; i < (n || 1); i++) update(); }, keys: keys, touch: touch,
-                press: function (code) { pressed[code] = true; },
+                press: function (code) { pressed[code] = true; }, loadLevel: function (i) { game.levelIdx = i; game.checkpointHit = false; loadLevel(); },
                 level: function () { return level; }, tiles: function () { return tiles; } };
 })();
