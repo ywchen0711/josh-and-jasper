@@ -1,5 +1,10 @@
 /*
- * Josh & Jasper — a side-scrolling platformer for one or two players.
+ * Josh & Jasper: Coyote Trail — a side-scrolling adventure for one or two players.
+ * The brothers walk the canyon trail to Sage Canyon School, cross the playground and the library,
+ * and meet Coach Coyote, the school mascot, at the end of every level.
+ *
+ * Their moves: throw (stuns critters; a stunned critter can be stood on), Josh's dash (breaks crates),
+ * Jasper's double jump, climbing ladders, dropping through platforms, standing on each other's head.
  * Fixed 60 Hz simulation, 320x192 logical screen, 16px tiles.
  */
 (function () {
@@ -8,38 +13,33 @@
   var canvas = document.getElementById('screen'), g = canvas.getContext('2d');
   g.imageSmoothingEnabled = false;
   var art = Art.build();
-  if (Art.buildSchool) Art.buildSchool(art);
-  // enemy kinds: speed, can be stomped, flies, bounces
-  var ENEMY = {
-    beetle:   { speed: 0.5, stomp: true },
-    hedgehog: { speed: 0.5, stomp: false },
-    lizard:   { speed: 1.0, stomp: true },
-    ball:     { speed: 0.8, stomp: true, bounce: true },
-    gull:     { speed: 0.7, stomp: true, fly: true },
-    cactus:   { speed: 0, stomp: false }
-  };
-  // tiles / ? blocks / ground top / power-up for the current level's theme
-  function tileset() {
-    return (art.tilesets && art.tilesets[level.theme]) || { tiles: art.tiles, question: art.question, top: art.grassTop, item: 'acorn' };
-  }
+  Art.buildWorld(art);
   var FONT = '8px "Press Start 2P", monospace';
 
-  // ---- the two brothers: Josh runs faster, Jasper jumps higher ----
   var BROS = {
-    josh:   { name: 'JOSH',   walk: 1.5, run: 2.75, jump: 5.7, acc: 0.09 },
-    jasper: { name: 'JASPER', walk: 1.5, run: 2.45, jump: 6.2, acc: 0.1 }
+    josh:   { name: 'JOSH',   speed: 1.9, jump: 5.5, dash: true,  color: '#46c460' },
+    jasper: { name: 'JASPER', speed: 1.8, jump: 5.8, double: true, color: '#ffb347' }
   };
-  var GRAV = 0.36, GRAV_HOLD = 0.19, MAX_FALL = 6, FRICTION = 0.11, SKID = 0.22, AIR_ACC = 0.06;
-  var SOLID = '#BX?MU[]{}';
+  var GRAV = 0.36, GRAV_HOLD = 0.2, MAX_FALL = 6, ACC = 0.14, AIR_ACC = 0.1, FRICTION = 0.16;
+  var HEARTS = 3;
+  // critters: speed, how they move, whether a throw stuns them
+  var ENEMY = {
+    lizard: { speed: 0.9, walk: true, stun: true },
+    robot:  { speed: 0.6, walk: true, stun: true },
+    ball:   { speed: 0.8, bounce: true, stun: true },
+    gull:   { speed: 0.7, fly: true, stun: true },
+    slime:  { speed: 1.2, hop: true, stun: true },
+    cactus: { speed: 0, stun: false }
+  };
 
   // ======================= input =======================
   var keys = {}, pressed = {};
   var KEYMAP = {
-    josh:   { left: ['KeyA'], right: ['KeyD'], jump: ['KeyW', 'Space'], run: ['ShiftLeft'] },
-    jasper: { left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['ArrowUp'], run: ['ShiftRight', 'Slash', 'Period'] },
-    extra:  { left: [], right: [], jump: ['KeyZ', 'KeyK'], run: ['KeyX', 'KeyJ'] }   // also usable in 1-player mode
+    josh:   { left: ['KeyA'], right: ['KeyD'], jump: ['KeyW'], down: ['KeyS'], toss: ['KeyF'], dash: ['ShiftLeft'] },
+    jasper: { left: ['ArrowLeft'], right: ['ArrowRight'], jump: ['ArrowUp'], down: ['ArrowDown'], toss: ['Slash', 'ShiftRight'], dash: [] },
+    solo:   { left: [], right: [], jump: ['Space', 'KeyZ'], down: [], toss: ['KeyX'], dash: ['KeyC'] }
   };
-  var touch = { left: false, right: false, jump: false, run: false };
+  var touch = {};
   window.addEventListener('keydown', function (e) {
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Slash'].indexOf(e.code) >= 0) e.preventDefault();
     if (!keys[e.code]) pressed[e.code] = true;
@@ -47,23 +47,15 @@
     Sound.unlock();
   });
   window.addEventListener('keyup', function (e) { keys[e.code] = false; });
-  window.addEventListener('blur', function () { keys = {}; });
-  function any(list) { return list.some(function (k) { return keys[k]; }); }
-  function anyPressed(list) { return list.some(function (k) { return pressed[k]; }); }
+  window.addEventListener('blur', function () { Object.keys(keys).forEach(function (k) { keys[k] = false; }); });
 
-  // which key sets drive a brother
-  function controlsFor(id) {
-    if (game.players.length === 1) return [KEYMAP.josh, KEYMAP.jasper, KEYMAP.extra];
-    return id === 'josh' ? [KEYMAP.josh, KEYMAP.extra] : [KEYMAP.jasper];
-  }
   function readInput(p) {
-    var sets = controlsFor(p.id), useTouch = p === game.players[0];
-    function act(name, edge) {
-      if (sets.some(function (s) { return edge ? anyPressed(s[name]) : any(s[name]); })) return true;
-      if (!useTouch) return false;
-      return edge ? touch[name + 'Pressed'] : touch[name];
-    }
-    return { left: act('left'), right: act('right'), jump: act('jump'), jumpPressed: act('jump', true), run: act('run') };
+    var sets = game.players.length === 1 ? [KEYMAP.josh, KEYMAP.jasper, KEYMAP.solo] : (p.id === 'josh' ? [KEYMAP.josh, KEYMAP.solo] : [KEYMAP.jasper]);
+    var useTouch = p === game.players[0];
+    function held(n) { return sets.some(function (s) { return s[n].some(function (k) { return keys[k]; }); }) || (useTouch && !!touch[n]); }
+    function tapped(n) { return sets.some(function (s) { return s[n].some(function (k) { return pressed[k]; }); }) || (useTouch && !!touch[n + 'Tap']); }
+    return { left: held('left'), right: held('right'), jump: held('jump'), jumpTap: tapped('jump'), down: held('down'), downTap: tapped('down'),
+             toss: tapped('toss'), dash: tapped('dash') };
   }
 
   // ---- touch buttons ----
@@ -74,7 +66,7 @@
   }
   Array.prototype.forEach.call(touchEl.querySelectorAll('button'), function (b) {
     var k = b.dataset.key;
-    function down(e) { e.preventDefault(); if (!touch[k]) touch[k + 'Pressed'] = true; touch[k] = true; b.classList.add('on'); Sound.unlock(); }
+    function down(e) { e.preventDefault(); if (!touch[k]) touch[k + 'Tap'] = true; touch[k] = true; b.classList.add('on'); Sound.unlock(); }
     function up(e) { e.preventDefault(); touch[k] = false; b.classList.remove('on'); }
     b.addEventListener('pointerdown', down);
     b.addEventListener('pointerup', up);
@@ -84,584 +76,648 @@
 
   // ======================= game state =======================
   var game = {
-    state: 'title', menu: 0, mode: null,
-    score: 0, coins: 0, lives: 5, levelIdx: 0,
-    players: [], enemies: [], items: [], parts: [], texts: [],
-    camX: 0, frame: 0, time: 300, timeT: 0, checkpointHit: false, paused: false
+    state: 'title', menu: 0, mode: null, levelIdx: 0, score: 0,
+    players: [], enemies: [], items: [], shots: [], parts: [], texts: [],
+    camX: 0, frame: 0, paused: false
   };
   var MENU = [
     { label: '1 PLAYER - JOSH', players: ['josh'] },
     { label: '1 PLAYER - JASPER', players: ['jasper'] },
     { label: '2 PLAYERS', players: ['josh', 'jasper'] }
   ];
-  var level, tiles, bumps;
+  var level, tiles, crateHits;
 
   function newGame(idx) {
     game.mode = MENU[idx];
-    game.score = 0; game.coins = 0; game.lives = 5; game.levelIdx = 0;
-    game.checkpointHit = false;
-    game.big = {};
-    loadLevel();
+    game.score = 0; game.levelIdx = 0;
+    game.totals = { stars: 0, paws: 0 };
+    startLevel();
   }
 
-  function loadLevel() {
+  // a fresh level (collected things stay collected when you retry from a paw flag)
+  function startLevel() {
     level = Levels[game.levelIdx];
     tiles = level.tiles.map(function (r) { return r.split(''); });
-    bumps = {};
+    crateHits = {};
+    game.items = level.items.map(function (it) { return { kind: it.kind, x: it.x * TILE, y: it.y * TILE, got: false }; });
+    game.starTotal = game.items.filter(function (it) { return it.kind === 'star'; }).length;
+    game.got = { stars: 0, paws: 0 };
+    game.checkpoint = null;
+    game.levelT = 0; game.retries = 0;
+    spawn();
+    game.state = 'intro'; game.introT = 0;
+  }
+
+  // (re)spawn the brothers and critters at the start or the last checkpoint
+  function spawn() {
     game.enemies = level.ents.map(function (e) {
-      var def = ENEMY[e.type] || ENEMY.beetle;
-      return { type: e.type, def: def, x: e.x * TILE, y: e.y * TILE, baseY: e.y * TILE, w: 14, h: 14, vx: -def.speed, vy: 0, t: 0,
-               active: false, dead: false, deadT: 0, flipped: false };
+      var def = ENEMY[e.type];
+      return { type: e.type, def: def, x: e.x * TILE + 1, y: e.y * TILE + 2, baseY: e.y * TILE, w: 14, h: 14, vx: -def.speed, vy: 0, t: 0,
+               stun: 0, dead: false, deadT: 0, hopT: 40 + Math.random() * 40 };
     });
-    game.items = []; game.parts = []; game.texts = [];
-    var startX = game.checkpointHit ? level.checkpoint : level.start[0].x;
+    game.shots = []; game.parts = []; game.texts = [];
+    var sx = game.checkpoint != null ? game.checkpoint : level.start.x;
     game.players = game.mode.players.map(function (id, i) {
-      var p = { id: id, x: (startX + i * 1.5) * TILE, y: 0, w: 12, h: 15, vx: 0, vy: 0, face: 1,
-                onGround: false, big: !!(game.big && game.big[id]), inv: 0, dead: false, deadT: 0, coyote: 0, buffer: 0,
-                anim: 0, ride: null, jumpHeld: false };
-      if (p.big) p.h = 22;
-      p.y = (level.start[0].y + 1) * TILE - p.h;
+      var p = { id: id, x: (sx + i * 1.5) * TILE, y: level.start.y * TILE - 22, w: 12, h: 22, vx: 0, vy: 0, face: 1,
+                hearts: HEARTS, inv: 0, onGround: false, coyote: 0, buffer: 0, airJump: false, climb: false, dropT: 0,
+                dashT: 0, dashCd: 0, tossCd: 0, anim: 0, ride: null, fainted: false, faintT: 0, safeX: 0, safeY: 0 };
+      p.safeX = p.x; p.safeY = p.y;
       return p;
     });
-    game.camX = Math.max(0, startX * TILE - VW * 0.3);
-    game.time = level.time; game.timeT = 0;
-    game.state = 'intro'; game.introT = 0;
+    game.camX = Math.max(0, Math.min(level.w * TILE - VW, sx * TILE - VW * 0.3));
   }
 
   // ======================= tiles =======================
   function tileAt(tx, ty) {
-    if (tx < 0 || tx >= level.w) return '#';         // level edges are walls
+    if (tx < 0 || tx >= level.w) return 'X';
     if (ty < 0 || ty >= level.h) return '.';
     return tiles[ty][tx];
   }
-  function solidAt(tx, ty) { return SOLID.indexOf(tileAt(tx, ty)) >= 0; }
+  function isSolid(c) { return c === '#' || c === 'X' || c === 'C' || c === 'S'; }
+  // one-way tops: platforms, and the top rung of a ladder
+  function isOneWay(tx, ty) {
+    var c = tileAt(tx, ty);
+    return c === '=' || (c === 'H' && tileAt(tx, ty - 1) !== 'H');
+  }
 
-  // move a box through the tile map, resolving one axis at a time
-  function moveBox(e, onHitHead) {
+  // move a box through the tiles; e.oneWay lets it land on platforms
+  function moveBox(e, onSide) {
     e.x += e.vx;
-    var top = Math.floor(e.y / TILE), bottom = Math.floor((e.y + e.h - 0.01) / TILE);
+    var top = Math.floor(e.y / TILE), bottom = Math.floor((e.y + e.h - 0.01) / TILE), ty, tx;
+    e.hitWall = 0;
     if (e.vx > 0) {
-      var tx = Math.floor((e.x + e.w) / TILE);
-      for (var ty = top; ty <= bottom; ty++) if (solidAt(tx, ty)) { e.x = tx * TILE - e.w; e.vx = 0; e.hitWall = 1; break; }
+      tx = Math.floor((e.x + e.w) / TILE);
+      for (ty = top; ty <= bottom; ty++) if (isSolid(tileAt(tx, ty))) { if (onSide) onSide(tx, ty); e.x = tx * TILE - e.w; e.vx = 0; e.hitWall = 1; break; }
     } else if (e.vx < 0) {
       tx = Math.floor(e.x / TILE);
-      for (ty = top; ty <= bottom; ty++) if (solidAt(tx, ty)) { e.x = (tx + 1) * TILE; e.vx = 0; e.hitWall = -1; break; }
+      for (ty = top; ty <= bottom; ty++) if (isSolid(tileAt(tx, ty))) { if (onSide) onSide(tx, ty); e.x = (tx + 1) * TILE; e.vx = 0; e.hitWall = -1; break; }
     }
+    var prevBottom = e.y + e.h;
     e.y += e.vy;
-    e.onGround = false;
+    e.onGround = false; e.landedOn = null;
     var left = Math.floor((e.x + 1) / TILE), right = Math.floor((e.x + e.w - 1) / TILE);
     if (e.vy > 0) {
       ty = Math.floor((e.y + e.h) / TILE);
-      for (tx = left; tx <= right; tx++) if (solidAt(tx, ty)) { e.y = ty * TILE - e.h; e.vy = 0; e.onGround = true; break; }
+      for (tx = left; tx <= right; tx++) {
+        var c = tileAt(tx, ty);
+        var oneWay = e.oneWay && !e.climb && !(e.dropT > 0) && isOneWay(tx, ty) && prevBottom <= ty * TILE + 0.5;
+        if (isSolid(c) || oneWay) { e.y = ty * TILE - e.h; e.vy = 0; e.onGround = true; e.landedOn = c; e.landTile = [tx, ty]; break; }
+      }
     } else if (e.vy < 0) {
       ty = Math.floor(e.y / TILE);
-      var hit = null, best = 99;
-      for (tx = left; tx <= right; tx++) {
-        if (!solidAt(tx, ty)) continue;
-        var d = Math.abs((tx + 0.5) * TILE - (e.x + e.w / 2));   // bump the block closest to the head
-        if (d < best) { best = d; hit = tx; }
-      }
-      if (hit !== null) { e.y = (ty + 1) * TILE; e.vy = 0; if (onHitHead) onHitHead(hit, ty); }
+      for (tx = left; tx <= right; tx++) if (isSolid(tileAt(tx, ty))) { e.y = (ty + 1) * TILE; e.vy = 0; break; }
     }
   }
 
-  function bumpBlock(p, tx, ty) {
-    var c = tileAt(tx, ty);
-    bumps[tx + ',' + ty] = 8;
-    // enemies standing on the block get knocked out
-    game.enemies.forEach(function (e) {
-      if (!e.dead && e.active && Math.abs(e.y + e.h - ty * TILE) < 3 && e.x + e.w > tx * TILE && e.x < (tx + 1) * TILE) knockOut(e, 100);
-    });
-    if (c === '?') {
-      tiles[ty][tx] = 'U';
-      addCoin(tx * TILE, ty * TILE - TILE);
-    } else if (c === 'M') {
-      tiles[ty][tx] = 'U';
-      game.items.push({ type: 'acorn', x: tx * TILE + 1, y: ty * TILE, w: 14, h: 14, vx: 0.9, vy: 0, rise: TILE });
-      Sound.play('sprout');
-    } else if (c === 'B' && p.big) {
-      tiles[ty][tx] = '.';
-      delete bumps[tx + ',' + ty];
-      for (var i = 0; i < 4; i++) {
-        game.parts.push({ kind: 'brick', x: tx * TILE + (i % 2) * 8, y: ty * TILE + (i < 2 ? 0 : 8),
-                          vx: (i % 2 ? 1 : -1) * 1.2, vy: i < 2 ? -5 : -3.5, t: 0 });
-      }
-      addScore(50);
-      Sound.play('brk');
-    } else {
-      Sound.play('bump');
+  function breakCrate(tx, ty) {
+    tiles[ty][tx] = '.';
+    for (var i = 0; i < 4; i++) {
+      game.parts.push({ kind: 'chip', x: tx * TILE + (i % 2) * 8, y: ty * TILE + (i < 2 ? 0 : 8), vx: (i % 2 ? 1 : -1) * 1.3, vy: i < 2 ? -4 : -2.5, t: 0 });
     }
+    addScore(20);
+    Sound.play('poof');
   }
 
-  function addScore(n, x, y) {
+  function addScore(n, x, y, color) {
     game.score += n;
-    if (x != null) game.texts.push({ text: String(n), x: x, y: y, t: 0 });
+    if (x != null) game.texts.push({ text: String(n), x: x, y: y, t: 0, color: color });
   }
-  function addCoin(x, y) {
-    game.coins++;
-    addScore(200);
-    if (x != null) game.parts.push({ kind: 'coin', x: x, y: y, vy: -4, t: 0 });
-    Sound.play('coin');
-    if (game.coins >= 100) { game.coins -= 100; game.lives++; Sound.play('oneup'); }
+  function say(text, x, y, color) { game.texts.push({ text: text, x: x, y: y, t: 0, color: color || '#fff' }); }
+
+  // ======================= the brothers =======================
+  function hurt(p, fromX) {
+    if (p.inv > 0 || p.fainted || p.dashT > 0) return;
+    p.hearts--;
+    p.inv = 100;
+    p.climb = false;
+    p.vx = (p.x + p.w / 2 < fromX ? -1 : 1) * 2.4;
+    p.vy = -3.2;
+    Sound.play('hurt');
+    if (p.hearts <= 0) faint(p);
+  }
+  function faint(p) {
+    p.fainted = true; p.faintT = 0; p.hearts = 0; p.vx = 0;
+    say('OOF!', p.x, p.y - 8, '#ff8080');
+  }
+  // fell in the water / goo or off the screen: lose a heart and go back to the last safe spot
+  function splash(p) {
+    Sound.play('splash');
+    p.hearts--;
+    p.x = p.safeX; p.y = p.safeY; p.vx = 0; p.vy = 0; p.inv = 90; p.climb = false;
+    if (p.hearts <= 0) faint(p);
   }
 
-  // ======================= players =======================
-  function setBig(p, big) {
-    if (p.big === big) return;
-    p.big = big;
-    if (big) { p.y -= 7; p.h = 22; } else { p.y += 7; p.h = 15; }
-    game.big[p.id] = big;
-  }
-
-  function hurt(p) {
-    if (p.inv > 0 || p.dead) return;
-    if (p.big) { setBig(p, false); p.inv = 110; Sound.play('shrink'); return; }
-    killPlayer(p, true);
-  }
-
-  function killPlayer(p, hop) {
-    if (p.dead) return;
-    p.dead = true; p.deadT = 0; p.vx = 0; p.vy = hop ? -5 : 0; p.ride = null;
-    setBig(p, false);
-    game.lives--;
-    Sound.play('die');
+  function ladderAt(p) {
+    var tx = Math.floor((p.x + p.w / 2) / TILE);
+    for (var ty = Math.floor(p.y / TILE); ty <= Math.floor((p.y + p.h - 1) / TILE); ty++) if (tileAt(tx, ty) === 'H') return tx;
+    // standing on the top rung counts too (so ↓ climbs down)
+    if (tileAt(tx, Math.floor((p.y + p.h + 1) / TILE)) === 'H') return tx;
+    return -1;
   }
 
   function updatePlayer(p) {
     var st = BROS[p.id];
-    if (p.dead) {
-      p.deadT++;
-      if (p.deadT > 30) { p.vy = Math.min(MAX_FALL, p.vy + GRAV); p.y += p.vy; }
-      if (p.deadT > 150) respawnOrRestart(p);
+    if (p.fainted) {                                 // sits dazed until the other brother comes to help
+      p.faintT++;
+      p.vy = Math.min(MAX_FALL, p.vy + GRAV); p.oneWay = true; moveBox(p);
+      if (p.y > VH + 16) { p.x = p.safeX; p.y = p.safeY; }
       return;
     }
     if (p.inv > 0) p.inv--;
-    var inp = readInput(p);
+    if (p.tossCd > 0) p.tossCd--;
+    if (p.dashCd > 0) p.dashCd--;
+    if (p.dropT > 0) p.dropT--;
+    var inp = readInput(p), dir = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
+    if (dir) p.face = dir;
 
-    // horizontal: accelerate toward walk / run speed, skid when reversing
-    var max = inp.run ? st.run : st.walk, dir = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
-    var acc = p.onGround ? st.acc : AIR_ACC;
-    if (dir) {
-      if (p.vx * dir < 0 && p.onGround) p.vx += dir * SKID;
-      else if (Math.abs(p.vx) < max || p.vx * dir < 0) p.vx += dir * acc;
-      else if (p.onGround) p.vx -= Math.sign(p.vx) * Math.min(FRICTION, Math.abs(p.vx) - max);
-      if (p.onGround || Math.abs(p.vx) < 0.5) p.face = dir;
-    } else if (p.onGround) {
-      p.vx -= Math.sign(p.vx) * Math.min(FRICTION, Math.abs(p.vx));
+    // ---- ladders: hold jump (up) to climb, down to climb down ----
+    var lad = ladderAt(p);
+    if (!p.climb && lad >= 0 && ((inp.jump && p.vy > -3 && !p.onGround) || (inp.jump && p.onGround && tileAt(lad, Math.floor((p.y - 1) / TILE)) === 'H') || (inp.down && p.onGround))) {
+      p.climb = true; p.airJump = false;
+      p.x = lad * TILE + (TILE - p.w) / 2;
+      if (inp.down && p.onGround) p.y += 3;
+    }
+    if (p.climb) {
+      var inLadder = false, ctx = Math.floor((p.x + p.w / 2) / TILE);
+      for (var ty = Math.floor(p.y / TILE); ty <= Math.floor((p.y + p.h - 1) / TILE); ty++) if (tileAt(ctx, ty) === 'H') inLadder = true;
+      if (!inLadder || (dir && !inp.jump && !inp.down)) {   // stepped off the side or climbed over the top
+        p.climb = false;
+        if (!inLadder && inp.jump) p.vy = -2.4;
+      } else {
+        p.vx = 0;
+        p.vy = inp.jump ? -1.6 : inp.down ? 1.8 : 0;
+        p.y += p.vy;
+        p.anim += Math.abs(p.vy) * 0.15;
+        if (inp.down && isSolid(tileAt(ctx, Math.floor((p.y + p.h) / TILE)))) { p.y = Math.floor((p.y + p.h) / TILE) * TILE - p.h; p.climb = false; }
+        p.onGround = false;
+        afterMove(p);
+        return;
+      }
     }
 
-    // jumping: coyote time + jump buffer; a faster run gives a slightly higher jump
+    // ---- Josh's dash: a quick burst that breaks crates and knocks critters dizzy ----
+    if (st.dash && inp.dash && p.dashCd <= 0) {
+      p.dashT = 14; p.dashCd = 45; p.vx = p.face * 4.6; p.vy = Math.min(p.vy, 0);
+      Sound.play('dash');
+    }
+    if (p.dashT > 0) {
+      p.dashT--;
+      p.vx = p.face * 4.6;
+      p.vy = 0;
+    } else {
+      var acc = p.onGround ? ACC : AIR_ACC;
+      if (dir) p.vx = Math.max(-st.speed, Math.min(st.speed, p.vx + dir * acc));
+      else if (p.onGround) p.vx -= Math.sign(p.vx) * Math.min(FRICTION, Math.abs(p.vx));
+      else p.vx *= 0.97;
+    }
+
+    // ---- jumping: coyote time, jump buffer, Jasper's double jump ----
     p.coyote = p.onGround ? 6 : p.coyote - 1;
-    p.buffer = inp.jumpPressed ? 6 : p.buffer - 1;
+    p.buffer = inp.jumpTap ? 6 : p.buffer - 1;
+    if (p.onGround) p.airJump = false;
     if (p.buffer > 0 && p.coyote > 0) {
-      p.vy = -(st.jump + Math.abs(p.vx) * 0.25);
-      p.buffer = 0; p.coyote = 0; p.onGround = false; p.ride = null;
-      Sound.play(p.big ? 'bigjump' : 'jump');
+      p.vy = -st.jump; p.buffer = 0; p.coyote = 0; p.onGround = false; p.ride = null;
+      Sound.play('jump');
+    } else if (inp.jumpTap && st.double && !p.onGround && !p.airJump && p.coyote <= 0) {
+      p.vy = -st.jump * 0.85; p.airJump = true; p.buffer = 0;
+      for (var k = 0; k < 4; k++) game.parts.push({ kind: 'puff', x: p.x + 2 + k * 3, y: p.y + p.h, vx: (k - 1.5) * 0.5, vy: 0.5, t: 0 });
+      Sound.play('jump');
     }
-    p.jumpHeld = inp.jump;
-    p.vy = Math.min(MAX_FALL, p.vy + (inp.jump && p.vy < 0 ? GRAV_HOLD : GRAV));
+    // ↓ on a platform drops through it
+    if (inp.downTap && p.onGround && p.landTile && tileAt(p.landTile[0], p.landTile[1]) === '=') { p.dropT = 12; p.onGround = false; }
 
-    // ride on your brother's head
-    if (p.ride && !p.ride.dead) p.x += p.ride.vx;
+    if (p.dashT <= 0) p.vy = Math.min(MAX_FALL, p.vy + (inp.jump && p.vy < 0 ? GRAV_HOLD : GRAV));
+
+    // ---- throw ----
+    if (inp.toss && p.tossCd <= 0) {
+      p.tossCd = 22;
+      game.shots.push({ x: p.x + p.w / 2 + p.face * 6, y: p.y + 12, vx: p.face * 3.6 + p.vx * 0.3, vy: -0.8, t: 0 });
+      Sound.play('toss');
+    }
+
+    if (p.ride && !p.ride.fainted) p.x += p.ride.vx;
     p.ride = null;
-
     p.prevBottom = p.y + p.h;
-    p.hitWall = 0;
-    moveBox(p, function (tx, ty) { bumpBlock(p, tx, ty); });
+    p.oneWay = true;
+    moveBox(p, function (tx, ty) { if (p.dashT > 0 && tileAt(tx, ty) === 'C') breakCrate(tx, ty); });
 
-    // stand on the other brother
+    // bounce pads
+    if (p.onGround && p.landedOn === 'S') {
+      p.vy = inp.jump ? -7.4 : -6.6; p.onGround = false;
+      Sound.play('spring');
+    }
+    // stand on your brother, or on a dizzy critter
+    if (p.vy >= 0) {
+      var tops = game.players.filter(function (q) { return q !== p; }).concat(game.enemies.filter(function (e) { return e.stun > 0 && !e.dead; }));
+      tops.forEach(function (q) {
+        if (p.x + p.w > q.x + 2 && p.x < q.x + q.w - 2 && p.prevBottom <= q.y + 3 && p.y + p.h >= q.y) {
+          p.y = q.y - p.h; p.vy = 0; p.onGround = true; p.ride = q.id ? q : null; p.landTile = null;
+        }
+      });
+    }
+    p.anim += Math.abs(p.vx) * 0.12;
+    afterMove(p);
+  }
+
+  function afterMove(p) {
+    // keep both brothers on screen
+    if (p.x < game.camX) { p.x = game.camX; if (p.vx < 0) p.vx = 0; }
+    if (p.x > game.camX + VW - p.w) { p.x = game.camX + VW - p.w; if (p.vx > 0) p.vx = 0; }
+    // remember a safe place to come back to
+    if (p.onGround && !p.climb) {
+      var below = Math.floor((p.y + p.h + 1) / TILE);
+      var l = tileAt(Math.floor(p.x / TILE), below), r = tileAt(Math.floor((p.x + p.w - 1) / TILE), below);
+      if ((isSolid(l) || l === '=') && (isSolid(r) || r === '=') && l !== 'S' && r !== 'S') { p.safeX = p.x; p.safeY = p.y; }
+    }
+    // water, goo, falling off
+    var feet = tileAt(Math.floor((p.x + p.w / 2) / TILE), Math.floor((p.y + p.h - 2) / TILE));
+    if (feet === '~' || p.y > VH + 16) splash(p);
+    // pick things up
+    game.items.forEach(function (it) {
+      if (it.got || !overlap(p, { x: it.x + 3, y: it.y + 3, w: 10, h: 10 })) return;
+      if (it.kind === 'orange' && p.hearts >= HEARTS) return;
+      it.got = true;
+      if (it.kind === 'star') { game.got.stars++; addScore(10); Sound.play('star'); }
+      else if (it.kind === 'paw') { game.got.paws++; addScore(500, it.x, it.y, '#80c0ff'); say('PAW BADGE!', it.x - 8, it.y - 10, '#80c0ff'); Sound.play('paw'); }
+      else { p.hearts = Math.min(HEARTS, p.hearts + 1); say('+1 HEART', it.x, it.y, '#ff8080'); Sound.play('heal'); }
+    });
+    // help a fainted brother back up
     game.players.forEach(function (q) {
-      if (q === p || q.dead || p.vy < 0) return;
-      if (p.x + p.w > q.x + 2 && p.x < q.x + q.w - 2 && p.prevBottom <= q.y + 3 && p.y + p.h >= q.y) {
-        p.y = q.y - p.h; p.vy = 0; p.onGround = true; p.ride = q;
+      if (q !== p && q.fainted && q.faintT > 30 && overlap(p, q)) {
+        q.fainted = false; q.hearts = 1; q.inv = 120;
+        say('HIGH FIVE!', q.x - 12, q.y - 10, '#f8d030');
+        Sound.play('revive');
       }
     });
-
-    // screen edges: can't go back left of the camera; in 2P the front runner waits at the right edge
-    if (p.x < game.camX) { p.x = game.camX; if (p.vx < 0) p.vx = 0; }
-    if (game.players.length > 1 && p.x > game.camX + VW - p.w) { p.x = game.camX + VW - p.w; if (p.vx > 0) p.vx = 0; }
-
-    // coins in the level
-    for (var ty = Math.floor(p.y / TILE); ty <= Math.floor((p.y + p.h - 1) / TILE); ty++) {
-      for (var tx = Math.floor(p.x / TILE); tx <= Math.floor((p.x + p.w - 1) / TILE); tx++) {
-        if (tileAt(tx, ty) === 'c') { tiles[ty][tx] = '.'; addCoin(); }
+    // checkpoints (Coyote paw flags)
+    level.checkpoints.forEach(function (cx) {
+      if (p.x > cx * TILE && (game.checkpoint == null || game.checkpoint < cx)) {
+        game.checkpoint = cx;
+        say('CHECKPOINT', cx * TILE - 16, 100, '#80ff80');
+        Sound.play('check');
       }
-    }
-
-    if (!game.checkpointHit && p.x > level.checkpoint * TILE) game.checkpointHit = true;
-    if (p.y > VH + 32) killPlayer(p, false);          // fell into a pit
-
-    // reached the flag pole
-    if (p.x + p.w / 2 >= level.flagX * TILE + 6 && game.state === 'play') startClear(p);
-
-    p.anim += Math.abs(p.vx) * 0.12;
+    });
+    // Coach Coyote at the end
+    if (game.state === 'play' && p.x + p.w > level.goalX * TILE + 2) startClear();
   }
 
-  function respawnOrRestart(p) {
-    var mate = game.players.filter(function (q) { return q !== p && !q.dead; })[0];
-    if (mate && game.lives > 0) {                     // drop back in above your brother
-      p.dead = false; p.inv = 120; p.vx = 0; p.vy = 0;
-      p.x = Math.max(game.camX + 8, mate.x - 4); p.y = Math.max(0, mate.y - 48);
-      return;
-    }
-    if (game.players.some(function (q) { return !q.dead; })) return;   // the other is still alive (no lives left)
-    if (game.lives <= 0) { game.state = 'gameover'; game.overT = 0; Sound.play('gameover'); return; }
-    loadLevel();
+  // ======================= critters =======================
+  function defeat(e) {
+    e.dead = true; e.deadT = 0;
+    addScore(100, e.x, e.y - 6);
+    for (var i = 0; i < 6; i++) game.parts.push({ kind: 'spark', x: e.x + 7, y: e.y + 7, vx: Math.cos(i) * 1.6, vy: Math.sin(i) * 1.6 - 1, t: 0 });
+    Sound.play('poof');
   }
-
-  // ======================= enemies & items =======================
-  function knockOut(e, pts) {
-    e.dead = true; e.flipped = true; e.vy = -3; e.vx = 0.6; e.deadT = 0;
-    addScore(pts, e.x, e.y);
-    Sound.play('stomp');
+  function stunEnemy(e) {
+    if (!e.def.stun) return false;
+    if (e.stun > 0) { defeat(e); return true; }
+    e.stun = 240; e.vx = 0;
+    Sound.play('stun');
+    return true;
+  }
+  function nearestPlayerX(e) {
+    var best = null, d = 1e9;
+    game.players.forEach(function (p) { if (!p.fainted && Math.abs(p.x - e.x) < d) { d = Math.abs(p.x - e.x); best = p.x; } });
+    return best == null ? e.x : best;
   }
 
   function updateEnemy(e) {
-    if (!e.active) { if (e.x < game.camX + VW + 32) e.active = true; else return; }
-    if (e.dead) {
-      e.deadT++;
-      if (e.flipped) { e.vy += GRAV; e.y += e.vy; e.x += e.vx; }
-      if (e.deadT > (e.flipped ? 90 : 30)) e.gone = true;
-      return;
-    }
+    if (e.x < game.camX - 64 || e.x > game.camX + VW + 64) return;
+    if (e.dead) { e.deadT++; if (e.deadT > 20) e.gone = true; return; }
     var def = e.def;
     e.t++;
-    if (def.fly) {                                    // seagulls glide in a wave, ignoring walls
-      e.x += e.vx;
-      e.y = e.baseY + Math.sin(e.t * 0.06) * 12;
-      if (e.x < game.camX - 64) e.gone = true;
-    } else {
-      e.vy = Math.min(MAX_FALL, e.vy + GRAV);
-      e.hitWall = 0;
-      moveBox(e);
-      if (e.hitWall) e.vx = e.hitWall > 0 ? -def.speed : def.speed;
-      if (e.vx === 0 && def.speed) e.vx = -def.speed;
-      if (def.bounce && e.onGround) e.vy = -4.2;     // playground ball keeps bouncing
-      if (e.y > VH + 32) e.gone = true;
+    if (e.stun > 0) {                                 // dizzy: a safe stepping stone for a while
+      e.stun--;
+      if (!def.fly) { e.vy = Math.min(MAX_FALL, e.vy + GRAV); e.oneWay = true; moveBox(e); }
+      if (e.stun === 0) e.vx = def.speed * (nearestPlayerX(e) > e.x ? 1 : -1);
+      return;
     }
-    // enemies turn around when they bump into each other
-    game.enemies.forEach(function (o) {
-      if (o === e || o.dead || !o.active || def.fly || o.def.fly || !def.speed) return;
-      if (overlap(e, o)) {
-        if ((e.x < o.x && e.vx > 0) || (e.x > o.x && e.vx < 0)) e.vx = -e.vx;
+    if (def.fly) {
+      if (e.homeX == null) e.homeX = e.x;
+      e.x += e.vx;
+      e.y = e.baseY + Math.sin(e.t * 0.05) * 14;
+      if (Math.abs(e.x - e.homeX) > 96) e.vx = -e.vx;   // gulls circle around their spot
+    } else if (def.hop) {
+      e.vy = Math.min(MAX_FALL, e.vy + GRAV); e.oneWay = true; moveBox(e);
+      if (e.onGround) {
+        e.vx = 0;
+        if (--e.hopT <= 0) { e.hopT = 70 + Math.random() * 40; e.vy = -5; e.vx = (nearestPlayerX(e) > e.x ? 1 : -1) * def.speed; }
       }
-    });
-    // touching a brother
+    } else if (def.speed) {
+      e.vy = Math.min(MAX_FALL, e.vy + GRAV); e.oneWay = true;
+      var vx = e.vx;
+      moveBox(e);
+      if (e.hitWall) e.vx = -vx;
+      if (def.bounce && e.onGround) e.vy = -4.2;
+      if (def.walk && e.onGround) {                   // walkers turn around at ledges and water
+        var ahead = Math.floor((e.vx > 0 ? e.x + e.w + 1 : e.x - 1) / TILE), below = Math.floor((e.y + e.h + 2) / TILE);
+        if (!(isSolid(tileAt(ahead, below)) || isOneWay(ahead, below))) e.vx = -e.vx;
+      }
+      if (e.vx === 0) e.vx = -def.speed;
+    } else {
+      e.vy = Math.min(MAX_FALL, e.vy + GRAV); moveBox(e);
+    }
+    if (e.y > VH + 32) e.gone = true;
+
     game.players.forEach(function (p) {
-      if (p.dead || !overlap(p, e)) return;
-      var stomp = p.vy > 0 && p.prevBottom <= e.y + 6;
-      if (stomp && def.stomp) {
-        if (def.fly || def.bounce) { e.dead = true; e.flipped = true; e.vy = def.bounce ? -2 : 0; e.vx = 1.5; e.deadT = 0; }   // kicked away
-        else { e.dead = true; e.deadT = 0; }
-        p.combo = (p.onGround ? 0 : p.combo || 0) + 1;
-        addScore([100, 200, 400, 800, 1000][Math.min(4, p.combo - 1)], e.x, e.y - 8);
-        p.vy = p.jumpHeld ? -6 : -3.8;
-        Sound.play('stomp');
-      } else if (p.inv <= 0) {
-        hurt(p);
-      }
+      if (p.fainted || e.stun > 0 || !overlap(p, e)) return;
+      if (p.dashT > 0 && def.stun) { stunEnemy(e); return; }
+      // landing on top just bounces you off — except on a cactus
+      if (e.type !== 'cactus' && p.vy > 0 && p.prevBottom <= e.y + 6) { p.vy = -4.6; Sound.play('spring'); return; }
+      hurt(p, e.x + e.w / 2);
     });
   }
 
-  function updateItem(it) {
-    if (it.rise > 0) { it.y -= 0.5; it.rise -= 0.5; return; }
-    it.vy = Math.min(MAX_FALL, it.vy + GRAV);
-    it.hitWall = 0;
-    moveBox(it);
-    if (it.hitWall) it.vx = -it.hitWall * 0.9;
-    if (it.y > VH + 32) it.gone = true;
-    game.players.forEach(function (p) {
-      if (it.gone || p.dead || !overlap(p, it)) return;
-      it.gone = true;
-      setBig(p, true);
-      addScore(1000, it.x, it.y);
-      Sound.play('power');
+  function updateShot(s) {
+    s.t++;
+    s.vy += 0.12;
+    s.x += s.vx; s.y += s.vy;
+    var tx = Math.floor(s.x / TILE), ty = Math.floor(s.y / TILE), c = tileAt(tx, ty);
+    if (isSolid(c)) {
+      if (c === 'C') { var key = tx + ',' + ty; crateHits[key] = (crateHits[key] || 0) + 1; if (crateHits[key] >= 2) breakCrate(tx, ty); else Sound.play('stun'); }
+      s.gone = true;
+      game.parts.push({ kind: 'puff', x: s.x, y: s.y, vx: 0, vy: -0.3, t: 0 });
+      return;
+    }
+    if (s.t > 70 || s.y > VH) { s.gone = true; return; }
+    game.enemies.forEach(function (e) {
+      if (s.gone || e.dead || !overlap({ x: s.x - 3, y: s.y - 3, w: 6, h: 6 }, e)) return;
+      s.gone = true;
+      if (!stunEnemy(e)) game.parts.push({ kind: 'puff', x: s.x, y: s.y, vx: 0, vy: -0.3, t: 0 });
     });
   }
 
   function overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
 
-  // ======================= level clear =======================
-  function startClear(p) {
-    game.state = 'clear';
-    game.clearT = 0;
-    game.flagger = p;
-    var height = Math.max(0, (level.h - 2) * TILE - (p.y + p.h));
-    var pts = height > 100 ? 5000 : height > 70 ? 2000 : height > 40 ? 800 : height > 20 ? 400 : 100;
-    addScore(pts, p.x, p.y);
-    game.flagY = Math.min(p.y, (level.h - 3) * TILE);
-    p.x = level.flagX * TILE + 2; p.vx = 0; p.vy = 0;
-    Sound.play('clear');
+  // ======================= level flow =======================
+  function startClear() {
+    game.state = 'clear'; game.clearT = 0;
+    game.totals.stars += game.got.stars; game.totals.paws += game.got.paws;
+    addScore(1000 + game.got.paws * 500);
+    Sound.play('howl');
   }
 
-  function updateClear() {
-    game.clearT++;
-    var p = game.flagger, ground = (level.h - 2) * TILE;
-    var poleBottom = ground - TILE;                      // the block under the pole
-    if (p.y + p.h < poleBottom) { p.y = Math.min(poleBottom - p.h, p.y + 2); game.flagY = Math.min(poleBottom - 12, game.flagY + 2); return; }
-    // the flag grabber walks into the castle; the other brother is already celebrating inside
-    game.players.forEach(function (q) { if (q !== p) q.inCastle = true; });
-    if (p.x < level.castleX * TILE + 32) {
-      p.face = 1; p.anim += 0.15; p.vx = 1.2;
-      p.vy = Math.min(MAX_FALL, p.vy + GRAV);
-      p.hitWall = 0;
-      moveBox(p);
-      p.vx = 0;
-      if (p.hitWall && p.onGround) p.vy = -5;
-    } else p.inCastle = true;
-    if (game.time > 0 && game.clearT > 60) {          // time bonus
-      var n = Math.min(game.time, 3);
-      game.time -= n; game.score += n * 50;
-      if (game.clearT % 4 === 0) Sound.play('select');
-      return;
+  function step() {
+    game.levelT++;
+    game.players.forEach(updatePlayer);
+    game.enemies.forEach(updateEnemy);
+    game.shots.forEach(updateShot);
+    game.enemies = game.enemies.filter(function (e) { return !e.gone; });
+    game.shots = game.shots.filter(function (s) { return !s.gone; });
+    game.parts.forEach(function (pt) { pt.t++; pt.x += pt.vx; pt.y += pt.vy; if (pt.kind === 'chip') pt.vy += GRAV; });
+    game.parts = game.parts.filter(function (pt) { return pt.t < (pt.kind === 'chip' ? 60 : 20); });
+    game.texts.forEach(function (t) { t.t++; t.y -= 0.4; });
+    game.texts = game.texts.filter(function (t) { return t.t < 60; });
+    // everyone fainted: try again from the last paw flag
+    if (game.players.every(function (p) { return p.fainted && p.faintT > 90; })) {
+      game.retries++;
+      spawn();
     }
-    if (game.clearT > 60 && game.players.every(function (q) { return q.dead || q.inCastle; })) {
-      game.clearWait = (game.clearWait || 0) + 1;
-      if (game.clearWait > 90) {
-        game.clearWait = 0;
-        game.levelIdx++;
-        game.checkpointHit = false;
-        if (game.levelIdx >= Levels.length) { game.state = 'win'; game.overT = 0; return; }
-        loadLevel();
-      }
-    }
+    updateCamera(0.15);
   }
 
-  // ======================= main update =======================
+  function updateCamera(ease) {
+    var alive = game.players.filter(function (p) { return !p.fainted; });
+    if (!alive.length) alive = game.players;
+    var avg = alive.reduce(function (s, p) { return s + p.x; }, 0) / alive.length;
+    var target = Math.max(0, Math.min(level.w * TILE - VW, avg + 6 - VW / 2));
+    game.camX += (target - game.camX) * ease;
+    if (Math.abs(target - game.camX) < 0.3) game.camX = target;
+  }
+
   function update() {
     game.frame++;
     if (pressed.KeyM) Sound.toggle();
     if (game.state === 'title') {
       if (pressed.ArrowDown || pressed.KeyS) { game.menu = (game.menu + 1) % MENU.length; Sound.play('select'); }
       if (pressed.ArrowUp || pressed.KeyW) { game.menu = (game.menu + MENU.length - 1) % MENU.length; Sound.play('select'); }
-      if (pressed.Enter || pressed.Space || touch.jumpPressed) newGame(game.menu);
+      if (pressed.Enter || pressed.Space || touch.jumpTap) newGame(game.menu);
     } else if (game.state === 'intro') {
-      if (++game.introT > 110) game.state = 'play';
+      if (++game.introT > 150 || (game.introT > 30 && (pressed.Enter || pressed.Space || touch.jumpTap))) game.state = 'play';
     } else if (game.state === 'play') {
-      if (pressed.KeyP || pressed.Escape) { game.paused = !game.paused; Sound.play('pause'); }
+      if (pressed.KeyP || pressed.Escape) { game.paused = !game.paused; Sound.play('select'); }
       if (!game.paused) step();
     } else if (game.state === 'clear') {
-      updateClear();
-      updateCamera();
-    } else if (game.state === 'gameover' || game.state === 'win') {
+      game.clearT++;
+      if (game.clearT > 90 && (pressed.Enter || pressed.Space || touch.jumpTap || game.clearT > 600)) {
+        game.levelIdx++;
+        if (game.levelIdx >= Levels.length) { game.state = 'win'; game.overT = 0; }
+        else startLevel();
+      }
+    } else if (game.state === 'win') {
       game.overT++;
-      if (game.overT > 120 && (pressed.Enter || pressed.Space || touch.jumpPressed)) game.state = 'title';
+      if (game.overT > 120 && (pressed.Enter || pressed.Space || touch.jumpTap)) game.state = 'title';
     }
     pressed = {};
-    touch.leftPressed = touch.rightPressed = touch.jumpPressed = touch.runPressed = false;
-  }
-
-  function step() {
-    game.players.forEach(updatePlayer);
-    game.enemies.forEach(updateEnemy);
-    game.items.forEach(updateItem);
-    game.enemies = game.enemies.filter(function (e) { return !e.gone; });
-    game.items = game.items.filter(function (it) { return !it.gone; });
-    game.parts.forEach(function (pt) {
-      pt.t++;
-      if (pt.kind === 'brick') { pt.vy += GRAV; pt.x += pt.vx; pt.y += pt.vy; }
-      else { pt.vy += 0.3; pt.y += pt.vy; }
-    });
-    game.parts = game.parts.filter(function (pt) { return pt.kind === 'coin' ? pt.t < 28 : pt.y < VH + 16; });
-    game.texts.forEach(function (t) { t.t++; t.y -= 0.5; });
-    game.texts = game.texts.filter(function (t) { return t.t < 50; });
-    Object.keys(bumps).forEach(function (k) { if (--bumps[k] <= 0) delete bumps[k]; });
-    // timer: one tick every 24 frames (like a classic 400-count clock)
-    if (++game.timeT >= 24) {
-      game.timeT = 0;
-      game.time--;
-      if (game.time <= 0) game.players.forEach(function (p) { killPlayer(p, true); });
-    }
-    updateCamera();
-  }
-
-  function updateCamera() {
-    var alive = game.players.filter(function (p) { return !p.dead; });
-    if (!alive.length) return;
-    var avg = alive.reduce(function (s, p) { return s + p.x; }, 0) / alive.length;
-    var target = avg - VW * 0.42;
-    game.camX = Math.max(0, Math.min(level.w * TILE - VW, Math.max(game.camX, target)));
+    Object.keys(touch).forEach(function (k) { if (/Tap$/.test(k)) touch[k] = false; });
   }
 
   // ======================= drawing =======================
-  function text(str, x, y, color, align) {
-    g.font = FONT;
+  function text(str, x, y, color, align, size) {
+    g.font = size ? size + 'px "Press Start 2P", monospace' : FONT;
     g.textAlign = align || 'left';
     g.textBaseline = 'top';
     g.fillStyle = '#000'; g.fillText(str, x + 1, y + 1);
     g.fillStyle = color || '#fff'; g.fillText(str, x, y);
   }
+  function theme() { return art.themes[level.theme] || art.themes.canyon; }
 
   function drawTiles() {
-    var x0 = Math.floor(game.camX / TILE), x1 = Math.min(level.w - 1, x0 + VW / TILE + 1);
-    var qFrame = [0, 0, 1, 2, 1][Math.floor(game.frame / 10) % 5], set = tileset();
+    var th = theme(), x0 = Math.floor(game.camX / TILE), x1 = Math.min(level.w - 1, x0 + VW / TILE + 1);
     for (var ty = 0; ty < level.h; ty++) {
       for (var tx = x0; tx <= x1; tx++) {
         var c = tiles[ty][tx];
         if (c === '.') continue;
         var x = Math.round(tx * TILE - game.camX), y = ty * TILE;
-        var b = bumps[tx + ',' + ty];
-        if (b) y -= Math.round(Math.sin((8 - b) / 8 * Math.PI) * 5);
-        if (c === 'c') { Art.drawCoin(g, x, y, game.frame + tx * 3); continue; }
-        if (c === '?' || c === 'M') { g.drawImage(set.question[qFrame], x, y); continue; }
-        var img = set.tiles[c];
-        if (img) g.drawImage(img, x, y);
-        if (c === '#' && tileAt(tx, ty - 1) !== '#') g.drawImage(set.top, x, y);
+        if (c === '~') { g.drawImage(th['~'], x, y + (tileAt(tx, ty - 1) === '~' ? 0 : Math.round(Math.sin(game.frame / 20 + tx)))); continue; }
+        if (th[c]) g.drawImage(th[c], x, y);
+        if (c === '#' && !isSolid(tileAt(tx, ty - 1))) g.drawImage(th.top, x, y);
       }
     }
   }
 
   function drawPlayer(p) {
-    if (p.inCastle) return;
-    if (p.inv > 0 && Math.floor(p.inv / 4) % 2 && !p.dead) return;   // blink while invulnerable
-    var frames = art[p.id], pose;
-    if (p.dead) pose = 'jump';
+    if (p.inv > 0 && Math.floor(p.inv / 4) % 2 && !p.fainted) return;
+    var fr = art[p.id], pose = 'stand';
+    if (p.climb) pose = Math.floor(p.anim) % 2 ? 'walk1' : 'walk2';
     else if (!p.onGround) pose = 'jump';
-    else if (Math.abs(p.vx) > 0.2 || (game.state === 'clear' && p === game.flagger)) pose = ['walk1', 'stand', 'walk2', 'stand'][Math.floor(p.anim) % 4];
-    else pose = 'stand';
-    var img = frames[pose][p.big ? 'big' : 'small'][p.face < 0 ? 1 : 0];
+    else if (Math.abs(p.vx) > 0.2) pose = ['walk1', 'stand', 'walk2', 'stand'][Math.floor(p.anim) % 4];
+    var img = fr[pose].big[p.face < 0 ? 1 : 0];
     var x = Math.round(p.x - 2 - game.camX), y = Math.round(p.y + p.h - img.height + 1);
-    g.drawImage(img, x, y);
-    if (game.players.length > 1 && !p.dead) {            // name tag in 2-player mode
-      g.font = '5px "Press Start 2P", monospace'; g.textAlign = 'center'; g.textBaseline = 'bottom';
-      g.fillStyle = '#000'; g.fillText(BROS[p.id].name, x + 9, y - 1);
-      g.fillStyle = art.colors[p.id]; g.fillText(BROS[p.id].name, x + 8, y - 2);
+    if (p.fainted) {                                  // sitting down, dazed
+      g.save(); g.translate(x + 8, y + 24); g.rotate(-Math.PI / 2 * p.face); g.drawImage(img, -8, -16); g.restore();
+      Art.drawDizzy(g, x - 4, y + 12, game.frame);
+      if (game.players.length > 1 && Math.floor(game.frame / 20) % 2) text('HELP!', x + 8, y + 2, '#ff8080', 'center', 5);
+      return;
     }
+    if (p.dashT > 0) { g.globalAlpha = 0.35; g.drawImage(img, x - p.face * 8, y); g.globalAlpha = 1; }
+    g.drawImage(img, x, y);
+    if (game.players.length > 1) text(BROS[p.id].name, x + 8, y - 7, BROS[p.id].color, 'center', 5);
   }
 
-  function flipped(img) { return img._flipped || (img._flipped = Art.flip(img)); }
+  function enemyImage(e) {
+    var set = art[e.type], img = set[Math.floor(game.frame / 12) % set.length];
+    if ((e.type === 'lizard' || e.type === 'gull' || e.type === 'robot') && e.vx > 0) img = img._flip || (img._flip = Art.flip(img));
+    return img;
+  }
   function drawEnemy(e) {
-    if (!e.active) return;
     var x = Math.round(e.x - 1 - game.camX), y = Math.round(e.y - 2);
-    var f = Math.floor(game.frame / 12) % 2;
-    var img;
-    if (e.type === 'beetle') img = art.beetle[f];
-    else if (e.type === 'hedgehog') img = art.hedgehog[f][e.vx > 0 ? 1 : 0];
-    else if (e.type === 'lizard') img = e.vx > 0 ? flipped(art.lizard[f]) : art.lizard[f];
-    else if (e.type === 'gull') img = e.vx > 0 ? flipped(art.gull[f]) : art.gull[f];
-    else if (e.type === 'ball') img = art.ball;
-    else img = art.cactus;
-    if (e.dead && !e.flipped) {                       // squashed
-      g.drawImage(img, 0, 4, 16, 10, x, y + 11, 16, 5);
+    if (x < -20 || x > VW + 20) return;
+    var img = enemyImage(e);
+    if (e.dead) { g.globalAlpha = Math.max(0, 1 - e.deadT / 20); g.drawImage(img, x, y - e.deadT); g.globalAlpha = 1; return; }
+    if (e.stun > 0) {
+      if (e.stun < 60 && Math.floor(e.stun / 5) % 2) g.globalAlpha = 0.6;
+      g.drawImage(img, x, y); g.globalAlpha = 1;
+      Art.drawDizzy(g, x, y, game.frame);
       return;
     }
-    if (e.flipped) { g.save(); g.translate(x, y + 16); g.scale(1, -1); g.drawImage(img, 0, 0); g.restore(); return; }
-    if (e.type === 'ball') {                          // squash a little on landing
-      var sq = e.onGround ? 3 : 0;
-      g.drawImage(img, x - sq / 2, y + sq, 16 + sq, 16 - sq);
-      return;
-    }
+    if (e.type === 'ball' && e.onGround) { g.drawImage(img, x - 1, y + 3, 18, 13); return; }
     g.drawImage(img, x, y);
+  }
+
+  function drawItems() {
+    game.items.forEach(function (it) {
+      if (it.got) return;
+      var x = Math.round(it.x - game.camX);
+      if (x < -16 || x > VW) return;
+      if (it.kind === 'star') Art.drawStar(g, x, it.y, game.frame + it.x / 8);
+      else if (it.kind === 'paw') Art.drawPaw(g, x, it.y, game.frame);
+      else g.drawImage(art.orange, x, it.y + Math.round(Math.sin(game.frame / 15) * 1.5));
+    });
   }
 
   function drawHud() {
-    var names = game.mode ? game.mode.players.map(function (id) { return BROS[id].name; }).join(' & ') : '';
-    text(names, 8, 6, '#fff');
-    text(String(game.score).padStart(6, '0'), 8, 16);
-    text('¢x' + String(game.coins).padStart(2, '0'), 100, 16, '#f8d030');
-    text('WORLD', 168, 6); text(level ? level.name : '', 176, 16);
-    text('TIME', 240, 6); text(String(Math.max(0, game.time)).padStart(3, '0'), 248, 16);
-    text('♥' + Math.max(0, game.lives), 290, 16, '#ff6070');
+    g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, VW, 26);
+    game.players.forEach(function (p, i) {
+      var x = 6 + i * 70;
+      text(BROS[p.id].name, x, 4, BROS[p.id].color, 'left', 6);
+      for (var h = 0; h < HEARTS; h++) Art.drawHeart(g, x + h * 9, 14, h < p.hearts);
+    });
+    var sx = 150;
+    Art.drawStar(g, sx - 6, 2, 0); text(game.got.stars + '/' + game.starTotal, sx + 10, 7, '#f8d030', 'left', 6);
+    for (var k = 0; k < 3; k++) {
+      if (k < game.got.paws) Art.drawPaw(g, sx + 46 + k * 13, 3, null, 12);
+      else { g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1; g.beginPath(); g.arc(sx + 54 + k * 13, 11, 5, 0, Math.PI * 2); g.stroke(); }
+    }
+    text(String(game.score).padStart(6, '0'), VW - 6, 5, '#ffffff', 'right', 6);
+    text(level.title, VW - 6, 16, '#c0e0ff', 'right', 5);
   }
 
   function drawWorld() {
-    Art.drawBackground(g, game.camX, VW, VH, level.theme);
-    // decorations, the goal building and the flag (behind the brothers)
     var ground = (level.h - 2) * TILE;
-    (level.decos || []).forEach(function (d) {
+    Art.drawBackground(g, game.camX, VW, VH, level.theme);
+    level.decos.forEach(function (d) {
       var dx = d.x * TILE - game.camX;
-      if (dx > -120 && dx < VW + 40) Art.drawDeco(g, d, Math.round(dx), ground, game.frame);
+      if (dx > -120 && dx < VW + 40) Art.drawDeco(g, d, Math.round(dx), ground, game.frame, art);
     });
-    if (!level.goal || level.goal === 'castle') Art.drawCastle(g, level.castleX * TILE - game.camX, ground);
-    else Art.drawGoalBuilding(g, level.goal, level.castleX * TILE - game.camX, ground);
-    var fy = game.state === 'clear' ? game.flagY : 2 * TILE + 8;
-    Art.drawFlag(g, level.flagX * TILE - game.camX, 1 * TILE, ground - TILE, fy);
+    level.checkpoints.forEach(function (cx) {
+      Art.drawCheckpoint(g, Math.round(cx * TILE - game.camX), ground, game.checkpoint != null && game.checkpoint >= cx, game.frame);
+    });
+    Art.drawCoach(g, art, Math.round(level.goalX * TILE - game.camX + 6), ground, game.frame, game.state === 'clear');
     drawTiles();
-    game.items.forEach(function (it) {
-      var x = Math.round(it.x - 1 - game.camX), y = Math.round(it.y - 2);
-      if (it.rise > 0) {                              // only the part above the block shows while sprouting
-        var vis = Math.round(TILE - it.rise);
-        g.drawImage(art[tileset().item] || art.acorn, 0, 0, 16, vis, x, y, 16, vis);
-      } else g.drawImage(art[tileset().item] || art.acorn, x, y);
-    });
+    drawItems();
     game.enemies.forEach(drawEnemy);
     game.players.forEach(drawPlayer);
+    var shotColor = theme().shot;
+    game.shots.forEach(function (s) { Art.drawShot(g, Math.round(s.x - game.camX), Math.round(s.y), shotColor); });
     game.parts.forEach(function (pt) {
-      var x = Math.round(pt.x - game.camX);
-      if (pt.kind === 'coin') Art.drawCoin(g, x, Math.round(pt.y), pt.t * 2);
-      else { g.fillStyle = '#d0602a'; g.fillRect(x, Math.round(pt.y), 7, 7); g.fillStyle = '#2a1008'; g.fillRect(x, Math.round(pt.y) + 6, 7, 1); }
+      var x = Math.round(pt.x - game.camX), y = Math.round(pt.y);
+      if (pt.kind === 'chip') { g.fillStyle = '#b07a40'; g.fillRect(x, y, 6, 6); }
+      else if (pt.kind === 'spark') { g.fillStyle = '#f8f060'; g.fillRect(x, y, 2, 2); }
+      else { g.fillStyle = 'rgba(255,255,255,' + Math.max(0, 1 - pt.t / 20) + ')'; g.fillRect(x - 2, y - 2, 4, 4); }
     });
-    g.font = '6px "Press Start 2P", monospace';
-    game.texts.forEach(function (t) {
-      g.textAlign = 'center'; g.fillStyle = '#000'; g.fillText(t.text, t.x - game.camX + 9, t.y + 1);
-      g.fillStyle = '#fff'; g.fillText(t.text, t.x - game.camX + 8, t.y);
-    });
+    game.texts.forEach(function (t) { text(t.text, Math.round(t.x - game.camX + 8), Math.round(t.y), t.color || '#fff', 'center', 6); });
     drawHud();
   }
 
+  function panel(x, y, w, h) {
+    g.fillStyle = 'rgba(10,20,40,0.85)'; g.fillRect(x, y, w, h);
+    g.strokeStyle = '#3a7ad8'; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  }
+
   function drawTitle() {
-    Art.drawBackground(g, game.frame * 0.5, VW, VH, 'day');
-    for (var x = 0; x < VW; x += TILE) { g.drawImage(art.tiles['#'], x, VH - 32); g.drawImage(art.tiles['#'], x, VH - 16); g.drawImage(art.grassTop, x, VH - 32); }
-    // logo
-    g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(36, 18, 248, 58);
-    g.strokeStyle = '#f8d030'; g.lineWidth = 2; g.strokeRect(36, 18, 248, 58);
+    Art.drawBackground(g, game.frame * 0.4, VW, VH, 'canyon');
+    var th = art.themes.canyon;
+    for (var x = 0; x < VW; x += TILE) { g.drawImage(th['#'], x, VH - 32); g.drawImage(th['#'], x, VH - 16); g.drawImage(th.top, x, VH - 32); }
+    panel(30, 10, 260, 60);
     g.font = '16px "Press Start 2P", monospace'; g.textAlign = 'center'; g.textBaseline = 'top';
-    g.fillStyle = '#000'; g.fillText('JOSH & JASPER', 162, 30);
-    g.fillStyle = '#f8d030'; g.fillText('JOSH & JASPER', 160, 28);
-    text('SUPER BROTHERS ADVENTURE', 160, 54, '#fff', 'center');
-    // the brothers on the title screen
+    g.fillStyle = '#000'; g.fillText('JOSH & JASPER', 162, 20);
+    g.fillStyle = '#f8d030'; g.fillText('JOSH & JASPER', 160, 18);
+    text('COYOTE TRAIL', 160, 42, '#9ad0ff', 'center');
+    text('A SAGE CANYON ADVENTURE', 160, 56, '#ffffff', 'center', 5);
     var bob = Math.floor(game.frame / 20) % 2;
-    g.drawImage(art.josh.stand.big[0], 120, VH - 32 - 24 - bob);
-    g.drawImage(art.jasper.stand.big[1], 184, VH - 32 - 24 - (1 - bob));
+    g.drawImage(art.josh.stand.big[0], 112, VH - 56 - bob);
+    Art.drawCoach(g, art, 152, VH - 32, game.frame, false);
+    g.drawImage(art.jasper.stand.big[1], 192, VH - 56 - (1 - bob));
     MENU.forEach(function (m, i) {
-      var y = 90 + i * 14;
-      text((i === game.menu ? '▶ ' : '  ') + m.label, 160, y, i === game.menu ? '#f8d030' : '#fff', 'center');
+      text((i === game.menu ? '> ' : '  ') + m.label, 160, 80 + i * 12, i === game.menu ? '#f8d030' : '#fff', 'center');
     });
-    text('ENTER / SPACE TO START', 160, 126, '#c0e0ff', 'center');
+    text('ENTER / SPACE TO START', 160, 118, '#c0e0ff', 'center', 6);
   }
 
   function drawIntro() {
-    g.fillStyle = '#000'; g.fillRect(0, 0, VW, VH);
-    text('WORLD ' + level.name, 160, 56, '#fff', 'center');
-    if (level.title) text(level.title, 160, 70, '#f8d030', 'center');
-    game.players.forEach(function (p, i) {
-      var img = art[p.id].stand[p.big ? 'big' : 'small'][0];
-      g.drawImage(img, 140 + i * 24 - (game.players.length - 1) * 12, 100 - img.height + 16);
-    });
-    text('x ' + game.lives, 186, 96, '#fff');
-    if (game.checkpointHit) text('CHECKPOINT', 160, 130, '#80ff80', 'center');
+    g.fillStyle = '#0c1830'; g.fillRect(0, 0, VW, VH);
+    text('LEVEL ' + level.name, 160, 34, '#9ad0ff', 'center');
+    text(level.title, 160, 50, '#f8d030', 'center');
+    text(level.hint || '', 160, 68, '#ffffff', 'center', 5);
+    game.players.forEach(function (p, i) { g.drawImage(art[p.id].stand.big[0], 152 + i * 22 - (game.players.length - 1) * 11, 84); });
+    var hasJosh = game.mode.players.indexOf('josh') >= 0, hasJasper = game.mode.players.indexOf('jasper') >= 0;
+    var tips = ['FIND THE 3 COYOTE PAW BADGES'];
+    if (hasJosh) tips.push('JOSH: SHIFT (OR C) DASHES AND BREAKS CRATES');
+    if (hasJasper) tips.push('JASPER: JUMP AGAIN IN THE AIR TO DOUBLE JUMP');
+    tips.push('THROW TO MAKE CRITTERS DIZZY - THEN STAND ON THEM');
+    tips.forEach(function (t, i) { text(t, 160, 120 + i * 11, '#c0c0d0', 'center', 5); });
+  }
+
+  function drawClear() {
+    panel(40, 38, 240, 116);
+    Art.drawCoach(g, art, 58, 136, game.frame, true);
+    text('GO COYOTES!', 172, 48, '#f8d030', 'center');
+    text(level.title + ' CLEAR', 172, 64, '#ffffff', 'center', 5);
+    Art.drawStar(g, 104, 78, 0); text(game.got.stars + ' / ' + game.starTotal, 124, 83, '#f8d030', 'left', 6);
+    for (var k = 0; k < 3; k++) {
+      if (k < game.got.paws) Art.drawPaw(g, 104 + k * 18, 96, null, 14);
+      else { g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1; g.beginPath(); g.arc(112 + k * 18, 104, 6, 0, Math.PI * 2); g.stroke(); }
+    }
+    var secs = Math.floor(game.levelT / 60);
+    text('TIME ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0') + (game.retries ? '  RETRIES ' + game.retries : ''), 104, 120, '#c0e0ff', 'left', 5);
+    if (game.clearT > 90) text('PRESS ENTER', 172, 138, '#ffffff', 'center', 6);
+  }
+
+  function drawWin() {
+    Art.drawBackground(g, 0, VW, VH, 'school');
+    panel(24, 20, 272, 152);
+    text('RING RING! SCHOOL TIME!', 160, 32, '#f8d030', 'center');
+    text('JOSH & JASPER MADE IT TO CLASS', 160, 50, '#ffffff', 'center', 5);
+    g.drawImage(art.josh.stand.big[0], 116, 76);
+    Art.drawCoach(g, art, 152, 100, game.frame, true);
+    g.drawImage(art.jasper.stand.big[1], 188, 76);
+    Art.drawStar(g, 92, 112, 0); text(String(game.totals.stars), 112, 117, '#f8d030', 'left', 6);
+    Art.drawPaw(g, 168, 112, null, 14); text(game.totals.paws + ' / ' + Levels.length * 3, 186, 117, '#9ad0ff', 'left', 6);
+    text('SCORE ' + game.score, 160, 136, '#ffffff', 'center', 6);
+    if (game.overT > 120) text('PRESS ENTER', 160, 154, '#c0e0ff', 'center', 6);
   }
 
   function draw() {
     g.setTransform(1, 0, 0, 1, 0, 0);
-    if (game.state === 'title') { drawTitle(); return; }
-    if (game.state === 'intro') { drawIntro(); drawHud(); return; }
+    if (game.state === 'title') return drawTitle();
+    if (game.state === 'win') return drawWin();
+    if (game.state === 'intro') return drawIntro();
     drawWorld();
+    if (game.state === 'clear') drawClear();
     if (game.paused) { g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(0, 0, VW, VH); text('PAUSED', 160, 88, '#fff', 'center'); }
-    if (game.state === 'gameover') {
-      g.fillStyle = 'rgba(0,0,0,0.7)'; g.fillRect(0, 0, VW, VH);
-      text('GAME OVER', 160, 80, '#ff6070', 'center');
-      if (game.overT > 120) text('PRESS ENTER', 160, 104, '#fff', 'center');
-    }
-    if (game.state === 'win') {
-      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, 0, VW, VH);
-      text('RING! SCHOOL TIME!', 160, 64, '#f8d030', 'center');
-      text('JOSH & JASPER MADE IT', 160, 84, '#fff', 'center');
-      text('SCORE ' + game.score, 160, 104, '#fff', 'center');
-      if (game.overT > 120) text('PRESS ENTER', 160, 128, '#c0e0ff', 'center');
-    }
   }
 
-  // tap the title menu on touch screens
+  // tap the title menu / screens on touch devices
   canvas.addEventListener('pointerdown', function (e) {
     Sound.unlock();
     if (game.state === 'title') {
       var r = canvas.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * VH;
-      var i = Math.floor((y - 86) / 14);
+      var i = Math.floor((y - 77) / 12);
       if (i >= 0 && i < MENU.length) { if (i === game.menu) newGame(i); else { game.menu = i; Sound.play('select'); } }
-    } else if (game.state === 'gameover' || game.state === 'win') {
-      if (game.overT > 120) game.state = 'title';
-    }
+    } else if (game.state === 'intro' && game.introT > 30) game.state = 'play';
+    else if (game.state === 'clear' && game.clearT > 90) touch.jumpTap = true;
+    else if (game.state === 'win' && game.overT > 120) game.state = 'title';
   });
 
   // ======================= scaling & loop =======================
@@ -685,8 +741,10 @@
   }
   requestAnimationFrame(loop);
 
-  // for automated tests
-  window.JJ = { game: game, newGame: newGame, step: function (n) { for (var i = 0; i < (n || 1); i++) update(); }, keys: keys, touch: touch,
-                press: function (code) { pressed[code] = true; }, loadLevel: function (i) { game.levelIdx = i; game.checkpointHit = false; loadLevel(); },
+  // hooks for automated tests
+  window.JJ = { game: game, newGame: newGame, keys: keys, touch: touch,
+                step: function (n) { for (var i = 0; i < (n || 1); i++) update(); },
+                press: function (code) { pressed[code] = true; },
+                loadLevel: function (i) { game.levelIdx = i; startLevel(); },
                 level: function () { return level; }, tiles: function () { return tiles; } };
 })();

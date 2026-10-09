@@ -55,6 +55,19 @@
     clear:   function () { seq([523, 659, 784, 1047, 0, 784, 1047, 1319, 1568], 0.11, 'square', 0.05); },
     gameover:function () { seq([392, 330, 262, 196, 165, 131], 0.18, 'triangle', 0.08); },
     select:  function () { note(880, 0.05, 'square', 0.04); },
+    toss:    function () { note(700, 0.08, 'triangle', 0.08, 350); },
+    stun:    function () { seq([1200, 900, 1200], 0.04, 'square', 0.04); },
+    poof:    function () { noise(0.15, 0.12); seq([660, 990], 0.05, 'square', 0.04); },
+    hurt:    function () { note(300, 0.2, 'sawtooth', 0.07, 120); },
+    spring:  function () { note(220, 0.25, 'triangle', 0.15, 880); },
+    dash:    function () { noise(0.12, 0.1); note(300, 0.12, 'square', 0.04, 600); },
+    star:    function () { note(1568, 0.06, 'square', 0.04); note(2093, 0.1, 'square', 0.04, null, 0.05); },
+    paw:     function () { seq([784, 988, 1175, 1568], 0.07, 'triangle', 0.08); },
+    heal:    function () { seq([523, 784, 1047], 0.06, 'triangle', 0.08); },
+    splash:  function () { noise(0.3, 0.15); note(400, 0.2, 'sine', 0.08, 150); },
+    check:   function () { seq([659, 880, 1319], 0.08, 'square', 0.05); },
+    revive:  function () { seq([392, 523, 659, 784, 1047], 0.06, 'triangle', 0.08); },
+    howl:    function () { note(500, 0.5, 'sine', 0.1, 900); note(900, 0.9, 'sine', 0.08, 600, 0.45); note(1200, 0.5, 'sine', 0.03, 800, 0.5); },
     pause:   function () { seq([659, 523, 659, 523], 0.06, 'square', 0.04); }
   };
 

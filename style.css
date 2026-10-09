@@ -13,8 +13,8 @@ body { display: flex; flex-direction: column; align-items: center; justify-conte
 /* 觸控按鈕：半透明，疊在畫面下方兩側 */
 #touch { position: absolute; inset: auto 0 8px 0; display: flex; justify-content: space-between; padding: 0 10px; pointer-events: none; }
 #touch[hidden] { display: none; }
-#touch div { display: flex; gap: 10px; pointer-events: auto; }
-#touch button { width: 58px; height: 58px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.55);
+#touch div { display: flex; gap: 6px; pointer-events: auto; }
+#touch button { width: 50px; height: 50px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.55);
   background: rgba(0, 0, 0, 0.28); color: rgba(255, 255, 255, 0.9); font: bold 20px system-ui, sans-serif; touch-action: none; }
 #touch button.on { background: rgba(255, 255, 255, 0.35); }
 body.touch .help { display: none; }
