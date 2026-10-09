@@ -699,6 +699,8 @@
   function drawWin() {
     g.save(); g.translate(0, TOP);
     Art.drawBackground(g, 0, VW, WH, 'school');
+    var th = art.themes.school;
+    for (var x = 0; x < VW; x += TILE) { g.drawImage(th['#'], x, WH - 32); g.drawImage(th['#'], x, WH - 16); g.drawImage(th.top, x, WH - 32); }
     g.translate(OX, -TOP / 2);
     panel(24, 20, 272, 152);
     text('RING RING! SCHOOL TIME!', 160, 32, '#f8d030', 'center');
