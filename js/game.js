@@ -9,7 +9,10 @@
  */
 (function () {
   'use strict';
-  var TILE = 16, VW = 320, VH = 192;
+  var TILE = 16, VW = 400, VH = 240;
+  var WH = 192, TOP = VH - WH;                      // the level is 12 rows (192px) tall; the HUD band sits above it
+  var OX = (VW - 320) / 2;                          // title / panels were laid out for 320 wide: center them
+  var DPR = 1;                                      // canvas pixels per logical pixel (set in resize)
   var canvas = document.getElementById('screen'), g = canvas.getContext('2d');
   g.imageSmoothingEnabled = false;
   var art = Art.build();
@@ -220,7 +223,7 @@
     if (p.fainted) {                                 // sits dazed until the other brother comes to help
       p.faintT++;
       p.vy = Math.min(MAX_FALL, p.vy + GRAV); p.oneWay = true; moveBox(p);
-      if (p.y > VH + 16) { p.x = p.safeX; p.y = p.safeY; }
+      if (p.y > WH + 16) { p.x = p.safeX; p.y = p.safeY; }
       return;
     }
     if (p.inv > 0) p.inv--;
@@ -331,7 +334,7 @@
     }
     // water, goo, falling off
     var feet = tileAt(Math.floor((p.x + p.w / 2) / TILE), Math.floor((p.y + p.h - 2) / TILE));
-    if (feet === '~' || p.y > VH + 16) splash(p);
+    if (feet === '~' || p.y > WH + 16) splash(p);
     // pick things up
     game.items.forEach(function (it) {
       if (it.got || !overlap(p, { x: it.x + 3, y: it.y + 3, w: 10, h: 10 })) return;
@@ -417,7 +420,7 @@
     } else {
       e.vy = Math.min(MAX_FALL, e.vy + GRAV); moveBox(e);
     }
-    if (e.y > VH + 32) e.gone = true;
+    if (e.y > WH + 32) e.gone = true;
 
     game.players.forEach(function (p) {
       if (p.fainted || e.stun > 0 || !overlap(p, e)) return;
@@ -439,7 +442,7 @@
       game.parts.push({ kind: 'puff', x: s.x, y: s.y, vx: 0, vy: -0.3, t: 0 });
       return;
     }
-    if (s.t > 70 || s.y > VH) { s.gone = true; return; }
+    if (s.t > 70 || s.y > WH) { s.gone = true; return; }
     game.enemies.forEach(function (e) {
       if (s.gone || e.dead || !overlap({ x: s.x - 3, y: s.y - 3, w: 6, h: 6 }, e)) return;
       s.gone = true;
@@ -587,25 +590,27 @@
   }
 
   function drawHud() {
-    g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, VW, 26);
+    g.fillStyle = 'rgba(8,14,28,0.55)'; g.fillRect(0, 0, VW, TOP - 8);
     game.players.forEach(function (p, i) {
-      var x = 6 + i * 70;
-      text(BROS[p.id].name, x, 4, BROS[p.id].color, 'left', 6);
-      for (var h = 0; h < HEARTS; h++) Art.drawHeart(g, x + h * 9, 14, h < p.hearts);
+      var x = 8 + i * 74;
+      text(BROS[p.id].name, x, 8, BROS[p.id].color, 'left', 7);
+      for (var h = 0; h < HEARTS; h++) Art.drawHeart(g, x + h * 9, 21, h < p.hearts);
     });
-    var sx = 150;
-    Art.drawStar(g, sx - 6, 2, 0); text(game.got.stars + '/' + game.starTotal, sx + 10, 7, '#f8d030', 'left', 6);
+    var sx = 176;
+    Art.drawStar(g, sx - 6, 6, 0); text(game.got.stars + '/' + game.starTotal, sx + 11, 11, '#f8d030', 'left', 7);
     for (var k = 0; k < 3; k++) {
-      if (k < game.got.paws) Art.drawPaw(g, sx + 46 + k * 13, 3, null, 12);
-      else { g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1; g.beginPath(); g.arc(sx + 54 + k * 13, 11, 5, 0, Math.PI * 2); g.stroke(); }
+      if (k < game.got.paws) Art.drawPaw(g, sx + 54 + k * 14, 7, null, 12);
+      else { g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1; g.beginPath(); g.arc(sx + 62 + k * 14, 15, 5, 0, Math.PI * 2); g.stroke(); }
     }
-    text(String(game.score).padStart(6, '0'), VW - 6, 5, '#ffffff', 'right', 6);
-    text(level.title, VW - 6, 16, '#c0e0ff', 'right', 5);
+    text(String(game.score).padStart(6, '0'), VW - 8, 8, '#ffffff', 'right', 7);
+    text(level.title, VW - 8, 22, '#c0e0ff', 'right', 6);
   }
 
   function drawWorld() {
     var ground = (level.h - 2) * TILE;
-    Art.drawBackground(g, game.camX, VW, VH, level.theme);
+    g.save();
+    g.translate(0, TOP);
+    Art.drawBackground(g, game.camX, VW, WH, level.theme);
     level.decos.forEach(function (d) {
       var dx = d.x * TILE - game.camX;
       if (dx > -120 && dx < VW + 40) Art.drawDeco(g, d, Math.round(dx), ground, game.frame, art);
@@ -627,6 +632,7 @@
       else { g.fillStyle = 'rgba(255,255,255,' + Math.max(0, 1 - pt.t / 20) + ')'; g.fillRect(x - 2, y - 2, 4, 4); }
     });
     game.texts.forEach(function (t) { text(t.text, Math.round(t.x - game.camX + 8), Math.round(t.y), t.color || '#fff', 'center', 6); });
+    g.restore();
     drawHud();
   }
 
@@ -636,9 +642,12 @@
   }
 
   function drawTitle() {
-    Art.drawBackground(g, game.frame * 0.4, VW, VH, 'canyon');
+    g.save(); g.translate(0, TOP);
+    Art.drawBackground(g, game.frame * 0.4, VW, WH, 'canyon');
     var th = art.themes.canyon;
-    for (var x = 0; x < VW; x += TILE) { g.drawImage(th['#'], x, VH - 32); g.drawImage(th['#'], x, VH - 16); g.drawImage(th.top, x, VH - 32); }
+    for (var x = 0; x < VW; x += TILE) { g.drawImage(th['#'], x, WH - 32); g.drawImage(th['#'], x, WH - 16); g.drawImage(th.top, x, WH - 32); }
+    g.translate(OX, -TOP / 2);
+    var VH = WH + TOP / 2;                              // layout below was made for a 192-tall screen
     panel(30, 10, 260, 60);
     g.font = '16px "Press Start 2P", monospace'; g.textAlign = 'center'; g.textBaseline = 'top';
     g.fillStyle = '#000'; g.fillText('JOSH & JASPER', 162, 20);
@@ -653,10 +662,12 @@
       text((i === game.menu ? '> ' : '  ') + m.label, 160, 80 + i * 12, i === game.menu ? '#f8d030' : '#fff', 'center');
     });
     text('ENTER / SPACE TO START', 160, 118, '#c0e0ff', 'center', 6);
+    g.restore();
   }
 
   function drawIntro() {
     g.fillStyle = '#0c1830'; g.fillRect(0, 0, VW, VH);
+    g.save(); g.translate(OX, TOP / 2);
     text('LEVEL ' + level.name, 160, 34, '#9ad0ff', 'center');
     text(level.title, 160, 50, '#f8d030', 'center');
     text(level.hint || '', 160, 68, '#ffffff', 'center', 5);
@@ -667,6 +678,7 @@
     if (hasJasper) tips.push('JASPER: JUMP AGAIN IN THE AIR TO DOUBLE JUMP');
     tips.push('THROW TO MAKE CRITTERS DIZZY - THEN STAND ON THEM');
     tips.forEach(function (t, i) { text(t, 160, 120 + i * 11, '#c0c0d0', 'center', 5); });
+    g.restore();
   }
 
   function drawClear() {
@@ -685,7 +697,9 @@
   }
 
   function drawWin() {
-    Art.drawBackground(g, 0, VW, VH, 'school');
+    g.save(); g.translate(0, TOP);
+    Art.drawBackground(g, 0, VW, WH, 'school');
+    g.translate(OX, -TOP / 2);
     panel(24, 20, 272, 152);
     text('RING RING! SCHOOL TIME!', 160, 32, '#f8d030', 'center');
     text('JOSH & JASPER MADE IT TO CLASS', 160, 50, '#ffffff', 'center', 5);
@@ -696,23 +710,25 @@
     Art.drawPaw(g, 168, 112, null, 14); text(game.totals.paws + ' / ' + Levels.length * 3, 186, 117, '#9ad0ff', 'left', 6);
     text('SCORE ' + game.score, 160, 136, '#ffffff', 'center', 6);
     if (game.overT > 120) text('PRESS ENTER', 160, 154, '#c0e0ff', 'center', 6);
+    g.restore();
   }
 
   function draw() {
-    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    g.imageSmoothingEnabled = false;
     if (game.state === 'title') return drawTitle();
     if (game.state === 'win') return drawWin();
     if (game.state === 'intro') return drawIntro();
     drawWorld();
-    if (game.state === 'clear') drawClear();
-    if (game.paused) { g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(0, 0, VW, VH); text('PAUSED', 160, 88, '#fff', 'center'); }
+    if (game.state === 'clear') { g.save(); g.translate(OX, TOP); drawClear(); g.restore(); }
+    if (game.paused) { g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(0, 0, VW, VH); text('PAUSED', VW / 2, VH / 2 - 4, '#fff', 'center'); }
   }
 
   // tap the title menu / screens on touch devices
   canvas.addEventListener('pointerdown', function (e) {
     Sound.unlock();
     if (game.state === 'title') {
-      var r = canvas.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * VH;
+      var r = canvas.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * VH - TOP / 2;
       var i = Math.floor((y - 77) / 12);
       if (i >= 0 && i < MENU.length) { if (i === game.menu) newGame(i); else { game.menu = i; Sound.play('select'); } }
     } else if (game.state === 'intro' && game.introT > 30) game.state = 'play';
@@ -723,10 +739,14 @@
   // ======================= scaling & loop =======================
   function resize() {
     var help = document.querySelector('.help'), hh = help && getComputedStyle(help).display !== 'none' ? help.offsetHeight + 20 : 0;
-    var s = Math.min(window.innerWidth / VW, (window.innerHeight - hh) / VH);
-    s = s >= 2 ? Math.floor(s) : Math.max(1, s);
-    canvas.style.width = Math.floor(VW * s) + 'px';
-    canvas.style.height = Math.floor(VH * s) + 'px';
+    var dpr = window.devicePixelRatio || 1;
+    var fit = Math.min(window.innerWidth / VW, (window.innerHeight - hh) / VH) * dpr;   // device pixels per game pixel
+    var k = fit >= 2 ? Math.floor(fit) : Math.max(1, fit);
+    DPR = k;
+    canvas.width = Math.round(VW * k); canvas.height = Math.round(VH * k);
+    canvas.style.width = (VW * k / dpr) + 'px';
+    canvas.style.height = (VH * k / dpr) + 'px';
+    g.imageSmoothingEnabled = false;
   }
   window.addEventListener('resize', resize);
   resize();

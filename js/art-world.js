@@ -276,7 +276,7 @@
   }
   Art.drawBackground = function (g, camX, w, h, theme) {
     if (theme === 'school') {
-      g.fillStyle = '#7cc4f4'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#7cc4f4'; g.fillRect(0, -64, w, h + 64);
       hills(g, camX, 0.15, 170, 40, '#a8b49a', 165, w);
       var off = camX * 0.5;
       for (var i = Math.floor(off / 200) - 1; i < (off + w) / 200 + 1; i++) {
@@ -288,7 +288,7 @@
       return;
     }
     if (theme === 'library') {
-      g.fillStyle = '#f0e2c4'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#f0e2c4'; g.fillRect(0, -64, w, h + 64);
       g.fillStyle = '#d8c4a0'; g.fillRect(0, 128, w, 32);                    // wainscot
       off = camX * 0.6;
       for (i = Math.floor(off / 160) - 1; i < (off + w) / 160 + 1; i++) {
@@ -308,7 +308,7 @@
       return;
     }
     // canyon (default)
-    g.fillStyle = '#a8d8f0'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#a8d8f0'; g.fillRect(0, -64, w, h + 64);
     g.fillStyle = '#fff4c0'; g.beginPath(); g.arc(60, 40, 14, 0, Math.PI * 2); g.fill();
     hills(g, camX, 0.15, 160, 46, '#b8c0a4', 170, w);
     hills(g, camX, 0.35, 120, 34, '#9aa88a', 172, w);
