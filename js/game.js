@@ -18,7 +18,7 @@
 
   var BROS = {
     josh:   { name: 'JOSH',   speed: 1.9, jump: 5.5, dash: true,  color: '#46c460' },
-    jasper: { name: 'JASPER', speed: 1.8, jump: 5.8, double: true, color: '#ffb347' }
+    jasper: { name: 'JASPER', speed: 1.8, jump: 5.8, double: true, color: '#9ad0ff' }
   };
   var GRAV = 0.36, GRAV_HOLD = 0.2, MAX_FALL = 6, ACC = 0.14, AIR_ACC = 0.1, FRICTION = 0.16;
   var HEARTS = 3;

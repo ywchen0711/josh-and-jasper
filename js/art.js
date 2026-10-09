@@ -66,19 +66,53 @@
     '..SPPPPPPPPS....',
     '...PPPPPPPP.....'
   ];
+  // Jasper's own look: messy spiky black hair, a big gap-toothed grin, an oversized charcoal tee with a grey
+  // backpack, light denim shorts, white socks and black-and-white checkered slip-ons
+  var JASPER = {
+    head: [
+      '...H.HH.HH.H....',
+      '..HHHHHHHHHHH...',
+      '..HHHHHHHHHHHH..',
+      '..HHHHSHHSSH....',
+      '..HHSKSSSKSS....',
+      '..HSSKSSSKSSS...',
+      '..HSSSSSSSSSSS..',
+      '...SSWWKWWS.....'
+    ],
+    body: [
+      '..GTTTTTTTT.....',
+      '.GGTTTTTTTTT....',
+      '.GGTTTTTTTTTT...',
+      '.GSSPPPPPPPSS...',
+      '...PPPPPPPP.....'
+    ],
+    jumpBody: [
+      'S.GTTTTTTTT..S..',
+      'SGGTTTTTTTTT.S..',
+      '.GGTTTTTTTTTT...',
+      '..SPPPPPPPPS....',
+      '...PPPPPPPP.....'
+    ],
+    // white socks above checkered shoes
+    legs: function (rows) {
+      return [rows[0], rows[1].replace(/S/g, 'w'), rows[2].replace(/B/g, function (m, i) { return i % 2 ? 'c' : 'B'; })];
+    }
+  };
   var BROTHERS = {
     josh:   { C: '#2e9e44', c: '#1d6e2e', H: '#5a3418', S: '#f6c79a', K: '#202020', M: '#b04030', T: '#46c460', P: '#2a4fa8', B: '#4a2a14' },
-    jasper: { C: '#f08a24', c: '#b05a10', H: '#8a4a1c', S: '#f6c79a', K: '#202020', M: '#b04030', T: '#ffb347', P: '#24407a', B: '#3a2010' }
+    jasper: { H: '#15110e', S: '#f0c49a', K: '#202020', W: '#ffffff', T: '#3c403d', G: '#9aa0a8', P: '#a8c4e0', w: '#f4f4f4', B: '#1c1c1c', c: '#eeeeee' }
   };
   // the big form is the same kid, taller: torso and legs are stretched
   function tall(rows) {
     var map = [0, 1, 2, 3, 4, 5, 6, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15];
     return map.map(function (i) { return rows[i]; });
   }
-  function brother(pal) {
+  function brother(pal, look) {
     var frames = {};
     Object.keys(LEGS).forEach(function (k) {
-      var rows = HEAD.concat(k === 'jump' ? JUMP_BODY : BODY, LEGS[k]);
+      var rows = look
+        ? look.head.concat(k === 'jump' ? look.jumpBody : look.body, look.legs(LEGS[k]))
+        : HEAD.concat(k === 'jump' ? JUMP_BODY : BODY, LEGS[k]);
       var small = sprite(rows, pal), big = sprite(tall(rows), pal);
       frames[k] = { small: [small, flip(small)], big: [big, flip(big)] };
     });
@@ -187,7 +221,7 @@
   Art.build = function () {
     var a = {};
     a.josh = brother(BROTHERS.josh);
-    a.jasper = brother(BROTHERS.jasper);
+    a.jasper = brother(BROTHERS.jasper, JASPER);
     a.colors = { josh: BROTHERS.josh.T, jasper: BROTHERS.jasper.T };
     var bp = { D: '#3a1450', P: '#8a3ac8', L: '#c890f0', W: '#ffffff', K: '#000000', d: '#201020' };
     a.beetle = [sprite(BEETLE, bp), sprite(BEETLE2, bp)];
