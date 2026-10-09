@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Josh &amp; Jasper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="screen" width="320" height="192"></canvas>
+    <!-- 觸控按鈕 (手機) -->
+    <div id="touch" hidden>
+      <div class="pad-left">
+        <button data-key="left" aria-label="Left">◀</button>
+        <button data-key="right" aria-label="Right">▶</button>
+      </div>
+      <div class="pad-right">
+        <button data-key="run" aria-label="Run">B</button>
+        <button data-key="jump" aria-label="Jump">A</button>
+      </div>
+    </div>
+  </div>
+  <p class="help">
+    <b>Josh</b>: A / D move · W jump · Left Shift run &nbsp;|&nbsp;
+    <b>Jasper</b>: ← / → move · ↑ jump · Right Shift or / run &nbsp;|&nbsp;
+    1 player: either key set works · Enter start · P pause · M sound
+  </p>
+
+  <script src="js/art.js?v=1"></script>
+  <script src="js/levels.js?v=1"></script>
+  <script src="js/sound.js?v=1"></script>
+  <script src="js/game.js?v=1"></script>
+</body>
+</html>

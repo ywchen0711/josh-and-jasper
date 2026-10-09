@@ -1,0 +1,20 @@
+:root { --bg: #14141c; --fg: #e8e8f0; --muted: #8a8aa0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
+#wrap { position: relative; }
+#screen { display: block; image-rendering: pixelated; image-rendering: crisp-edges; background: #6ab4f8;
+  box-shadow: 0 0 0 3px #000, 0 10px 40px rgba(0, 0, 0, 0.6); }
+.help { margin: 0 16px; font-size: 13px; color: var(--muted); text-align: center; line-height: 1.6; }
+.help b { color: var(--fg); }
+
+/* 觸控按鈕：半透明，疊在畫面下方兩側 */
+#touch { position: absolute; inset: auto 0 8px 0; display: flex; justify-content: space-between; padding: 0 10px; pointer-events: none; }
+#touch[hidden] { display: none; }
+#touch div { display: flex; gap: 10px; pointer-events: auto; }
+#touch button { width: 58px; height: 58px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.28); color: rgba(255, 255, 255, 0.9); font: bold 20px system-ui, sans-serif; touch-action: none; }
+#touch button.on { background: rgba(255, 255, 255, 0.35); }
+body.touch .help { display: none; }
